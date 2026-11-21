@@ -63,6 +63,9 @@ class _CheapBcrypt:
 
 def setUpModule():
     # every store of api in a directory of this module's own: the data dir may be the one the whole suite shares
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
     data_dir = api.DATA_DIR
     moved = {n: v for n, v in vars(api).items() if n.isupper() and isinstance(v, Path) and v.parent == data_dir}
     tmp = Path(tempfile.mkdtemp(prefix='rp-longpw-run-'))
@@ -86,6 +89,8 @@ def tearDownModule():
     api._LOAD_CACHE.clear()
     api._RCTX.environ = None
     shutil.rmtree(_STATE['tmp'], ignore_errors=True)
+    import api_guard
+    api_guard.restore(__name__)
 
 
 def _environ(method, path, body=b'', headers=None):

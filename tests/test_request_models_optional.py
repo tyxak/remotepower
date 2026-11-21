@@ -22,6 +22,17 @@ _SRC = Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'request_models.py'
 _MISSING = object()
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _load(without_pydantic):
     saved = sys.modules.get('pydantic', _MISSING)
     if without_pydantic:

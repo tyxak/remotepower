@@ -38,6 +38,17 @@ sys.modules.setdefault("api", api)
 _spec.loader.exec_module(api)
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _load_bound(name):
     """exec a bound *_handlers module the way api.py does."""
     spec = importlib.util.spec_from_file_location(f"{name}_scat", _CGI / f"{name}.py")

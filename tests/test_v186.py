@@ -421,6 +421,9 @@ class TestWiring(unittest.TestCase):
 
 
 def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
     __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import env_guard
 
@@ -434,6 +437,8 @@ def tearDownModule():
     import env_guard
 
     env_guard.restore(__name__)
+    import api_guard
+    api_guard.restore(__name__)
 
 
 if __name__ == '__main__':

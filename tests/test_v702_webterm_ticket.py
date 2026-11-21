@@ -40,6 +40,17 @@ os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-wt-'))
 import srcpin                                                    # noqa: E402
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _load_daemon():
     """Import the daemon with asyncssh stubbed — it is not a CI dependency and
     the module exits at import without it."""

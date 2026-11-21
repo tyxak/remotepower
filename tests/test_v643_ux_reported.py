@@ -41,6 +41,17 @@ from srcpin import js_function  # noqa: E402  (tests/ is on sys.path, see above)
 _PLURAL = js_function((_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text(encoding="utf-8"), "plural")
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _have_node():
     try:
         subprocess.run(["node", "--version"], capture_output=True, timeout=10)

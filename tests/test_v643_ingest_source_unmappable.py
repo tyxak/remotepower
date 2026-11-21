@@ -45,6 +45,17 @@ _EVENT = "ingest_source_unmappable"
 _RECOVER = "ingest_source_mapped"
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _fresh_api():
     """A private api module on its own data dir — these tests write alerts."""
     os.environ["RP_DATA_DIR"] = tempfile.mkdtemp()

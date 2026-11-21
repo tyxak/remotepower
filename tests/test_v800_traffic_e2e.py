@@ -47,6 +47,9 @@ def _seeder():
 
 
 def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
     if sync_playwright is None:
         browser_required.skip_or_fail("playwright not installed")
     if os.environ.get("RP_STORAGE_BACKEND") == "sqlite":
@@ -82,6 +85,8 @@ def tearDownModule():
     finally:
         if _STATE.get("shutdown"):
             _STATE["shutdown"]()
+    import api_guard
+    api_guard.restore(__name__)
 
 
 def _path(name):
