@@ -63,43 +63,19 @@ def writes_in(node, names=('os',), environ=()):
 
 
 def has_a_way_back(tree, names=('os',), environ=()):
-    """A call to env_guard.restore inside tearDownModule, or a construct in the file that undoes what the module writes.
+    """Whether the module gives the request variables back with the hooks of tests/env_guard.py: `env_guard.save` in setUpModule and `env_guard.restore` in tearDownModule.
 
-    8.0.2: any `os.environ.pop(...)` used to count, so twelve modules that wrote REQUEST_METHOD, PATH_INFO and CONTENT_LENGTH and popped HTTP_X_TOKEN, or RP_DATA_DIR, passed as having a
-    way back and left the three behind. A pop or a del with a constant key now counts for that key only: the variables the module writes must all be among the keys it removes. Constructs
-    that remove an unknown set (clear, an update by a variable, a key given by a variable, patch.dict, monkeypatch) are still taken as a way back, and the run of every module that
-    writes one (tests/test_v800_env_restored.py's census, in the commit that added this) found none of them leaking."""
+    8.0.2: the rule used to take any pop, del, clear, update by a variable or patch.dict in the file as a way back, and then a pop of the constants a module wrote. Every module that writes a
+    request variable was then run in a process of its own and the variables compared before and after (173 modules, `dev-tools/sweep-8.0.2/env_census2.py`): 22 left some behind, among them
+    ones that popped a variable, cleared the environment in a helper or patched it with a dictionary. A construct that looks like a way back is not one until it is run, so the only way
+    back this accepts is the one that was run and measured: the hooks, which restore what the module found whatever it did in between."""
+    saved = restored = False
     for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name == 'tearDownModule':
-            if any(isinstance(c, ast.Call) and ast.unparse(c.func) == 'env_guard.restore' for c in ast.walk(n)):
-                return True
-    removed, unknown = set(), False
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Delete):
-            for t in n.targets:
-                if isinstance(t, ast.Subscript) and is_env(t.value, names, environ):
-                    if isinstance(t.slice, ast.Constant):
-                        removed.add(t.slice.value)
-                    else:
-                        unknown = True
-        if isinstance(n, ast.Assign):
-            for t in n.targets:
-                if is_env(t, names, environ) or (isinstance(t, ast.Subscript) and is_env(t.value, names, environ) and not isinstance(t.slice, ast.Constant)):
-                    unknown = True
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
-            if is_env(n.func.value, names, environ):
-                if n.func.attr == 'pop':
-                    if n.args and isinstance(n.args[0], ast.Constant):
-                        removed.add(n.args[0].value)
-                    else:
-                        unknown = True
-                elif n.func.attr == 'clear' or (n.func.attr == 'update' and not (n.args and isinstance(n.args[0], ast.Dict))):
-                    unknown = True
-            if n.func.attr == 'dict' and n.args and (is_env(n.args[0], names, environ) or (isinstance(n.args[0], ast.Constant) and n.args[0].value == 'os.environ')):
-                unknown = True
-            if n.func.attr in ('setenv', 'delenv'):
-                unknown = True
-    return unknown or set(writes_in(tree, names, environ)) <= removed
+        if isinstance(n, ast.FunctionDef) and n.name == 'setUpModule':
+            saved = any(isinstance(c, ast.Call) and ast.unparse(c.func) == 'env_guard.save' for c in ast.walk(n))
+        elif isinstance(n, ast.FunctionDef) and n.name == 'tearDownModule':
+            restored = any(isinstance(c, ast.Call) and ast.unparse(c.func) == 'env_guard.restore' for c in ast.walk(n))
+    return saved and restored
 
 
 def scan(source):
@@ -115,6 +91,12 @@ def scan(source):
 
 def population():
     return {p.name: scan(p.read_text(errors='replace')) for p in sorted(_TESTS.glob('test_*.py'))}
+
+
+# A module that writes request variables and is let off the hooks, with the reason. Its own subject: the tests of the guard save the whole environment in setUp and put it back in tearDown.
+EXEMPT = {
+    'test_v800_env_restored.py': 'the tests of env_guard itself: TestTheGuard saves the whole environment in setUp and restores it in tearDown, which is the thing under test',
+}
 
 
 LEAKS_AT_IMPORT = "import os\nos.environ['REQUEST_METHOD'] = 'GET'\n\nclass T:\n    pass\n"
@@ -138,8 +120,13 @@ class TestTheScan(unittest.TestCase):
 
     def test_a_pop_of_another_variable_is_not_a_way_back(self):
         self.assertEqual(scan(PARTIAL_POP), ([], ['REQUEST_METHOD', 'PATH_INFO'], False), 'control: popping HTTP_X_TOKEN does not put REQUEST_METHOD and PATH_INFO back')
-        self.assertEqual(scan(FULL_POP), ([], ['REQUEST_METHOD', 'PATH_INFO'], True), 'control: a pop and a del of exactly what is written are a way back')
-        self.assertEqual(scan(PARTIAL_POP + "    os.environ.clear()\n")[2], True, 'control: a clear removes an unknown set and is taken as a way back')
+        self.assertEqual(scan(FULL_POP), ([], ['REQUEST_METHOD', 'PATH_INFO'], False), 'control: nor is a pop and a del of exactly what is written, which is only as good as the code that runs it')
+        self.assertEqual(scan(PARTIAL_POP + "    os.environ.clear()\n")[2], False, 'control: nor a clear')
+        self.assertEqual(scan("import os\nfrom unittest import mock\n\ndef f():\n    os.environ['REQUEST_METHOD'] = 'GET'\n    with mock.patch.dict(os.environ, {}):\n        pass\n")[2], False, 'control: nor a patch.dict')
+        self.assertEqual(scan(GUARDED)[2], True, 'control: the hooks are')
+        only_save = "import os\n\ndef setUpModule():\n    import env_guard\n    env_guard.save(__name__)\n    os.environ['REQUEST_METHOD'] = 'GET'\n"
+        only_restore = "import os\n\ndef tearDownModule():\n    import env_guard\n    env_guard.restore(__name__)\n\ndef f():\n    os.environ['REQUEST_METHOD'] = 'GET'\n"
+        self.assertEqual((scan(only_save)[2], scan(only_restore)[2]), (False, False), 'control: the two hooks are needed together: a restore with no save undoes nothing, a save with no restore is a leak')
 
     def test_it_follows_the_other_names_of_os_and_environ(self):
         self.assertEqual(scan(LEAKS_BY_AN_ALIAS), ([], ['QUERY_STRING'], False), 'control: a write through `import os as _os` inside a test is found (it was not, until 8.0.2)')
@@ -152,8 +139,8 @@ class TestTheScan(unittest.TestCase):
         self.assertGreater(len(pop), 1000, 'the population was read')
         writers = [n for n, (_, w, _) in pop.items() if w]
         self.assertGreater(len(writers), 150, 'control: the modules that write a request variable were found (167 at 8.0.0)')
-        guarded = [n for n, (_, w, _) in pop.items() if w and 'env_guard' in (_TESTS / n).read_text()]
-        self.assertGreater(len(guarded), 90, 'control: the modules that were given the hooks were found (102 at 8.0.0)')
+        guarded = [n for n, (_, w, back) in pop.items() if w and back]
+        self.assertGreater(len(guarded), 150, 'control: the modules that have the hooks were found (102 at 8.0.0, 172 at 8.0.2, when the census made every writer have them)')
         trees = {p.name: ast.parse(p.read_text(errors='replace')) for p in sorted(_TESTS.glob('test_*.py'))}
         aliased = [n for n, t in trees.items() if os_names(t) != ({'os'}, set())]
         self.assertGreater(len(aliased), 50, 'control: the modules that import os or environ under another name were found (61 at 8.0.2)')
@@ -168,8 +155,15 @@ class TestEveryTestModule(unittest.TestCase):
         self.assertEqual(bad, {}, 'a request variable written at import runs at discovery, before any test, and stays for every module: write it in setUpModule and use tests/env_guard.py')
 
     def test_every_module_that_writes_one_has_a_way_back(self):
-        bad = sorted(n for n, (_, w, back) in population().items() if w and not back)
-        self.assertEqual(bad, [], 'these modules write a request variable and never put it back; give them setUpModule/tearDownModule as tests/env_guard.py shows')
+        bad = sorted(n for n, (_, w, back) in population().items() if w and not back and n not in EXEMPT)
+        self.assertEqual(bad, [], 'these modules write a request variable and do not give it back with the hooks: give them setUpModule/tearDownModule as tests/env_guard.py shows')
+
+    def test_the_exemptions_are_still_needed(self):
+        pop = population()
+        for name, why in EXEMPT.items():
+            self.assertTrue(why.strip(), name)
+            self.assertIn(name, pop, 'the exemption names a module that is not there: remove it')
+            self.assertTrue(pop[name][1] and not pop[name][2], 'the module writes a request variable and has the hooks now, or writes none: remove the exemption: ' + name)
 
 
 class TestTheGuard(unittest.TestCase):

@@ -30,6 +30,20 @@ DISK = "disk|/dev/sda"
 GPU = "gpu|RTX 4070"
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def board(label, value):
     return {"label": label, "current_c": value}
 

@@ -44,6 +44,20 @@ CLOUDFLARE = '104.16.0.5'          # inside Cloudflare's published ranges: never
 HANDLERS = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def wire(msg, app='filterlog', n=1):
     """A line as the syslog daemon forwards it: a priority, the RFC 5424 header, the message."""
     return '<134>' + stamp(msg, app=app, n=n)

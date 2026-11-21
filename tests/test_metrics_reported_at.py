@@ -24,6 +24,20 @@ FIGURES = {"cpu_percent": 12.5, "mem_percent": 41.0, "disk_percent": 49.7,
            "mounts": [{"path": "/", "percent": 49.7, "used_gb": 454.35, "total_gb": 927.4, "fstype": "btrfs"}]}
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class _Beats(_Base):
 
     def beat_with(self, sysinfo=None, partial=False):

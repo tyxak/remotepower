@@ -32,6 +32,20 @@ import drive_temp as dt  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def _call_path(handler, path_arg, body, verb):
     """Run a handler that takes a host id, with the auth gates left real (the caller stubs verify_token only)."""
     names = ("get_token_from_request", "method", "get_json_body", "get_json_obj", "audit_log", "respond")

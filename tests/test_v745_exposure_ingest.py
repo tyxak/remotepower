@@ -20,6 +20,20 @@ WITH_PUBLIC = ["192.168.1.20", "172.17.0.1", "203.0.113.9"]
 WITH_V6 = ["192.168.1.20", "2a01:4f8::5"]
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def ports(*extra):
     return [
         {"proto": "tcp", "port": 443, "process": "nginx", "addr": "0.0.0.0", "scope": "world"},

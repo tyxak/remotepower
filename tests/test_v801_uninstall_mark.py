@@ -31,6 +31,20 @@ HAVE_NODE = shutil.which('node') is not None
 KEYS = ('agent_uninstalled', 'agent_uninstalled_at', 'agent_uninstalled_by', 'agent_uninstall_sent_at')
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class _Uninstall(_Base):
     def setUp(self):
         super().setUp()

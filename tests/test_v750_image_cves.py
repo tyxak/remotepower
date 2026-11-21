@@ -35,6 +35,20 @@ NGINX = "docker.io/library/nginx:1.25"
 PG = "docker.io/library/postgres:16"
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def _trivy(crit, high, med):
     """What `trivy image --format json` prints for an image with this many findings."""
     vulns = []

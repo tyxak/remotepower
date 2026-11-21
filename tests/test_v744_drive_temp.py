@@ -33,6 +33,20 @@ from test_v743_disk_io import _call  # noqa: E402
 import drive_temp as dt  # noqa: E402
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def drv(serial, temp=None, device="/dev/sda", **kw):
     """One SMART entry as the ingest keeps it."""
     d = {"device": device, "health": "PASSED", "model": "TestDrive", "serial": serial}

@@ -41,6 +41,20 @@ RELEASES = ("ubuntu-22.04", "ubuntu-24.04", "debian-13")
 PID = "pp-0123456789ab"
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def real(rel, state):
     return P.parse((FIX / f"{rel}-{state}.txt").read_text())
 

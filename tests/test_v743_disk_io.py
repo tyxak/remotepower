@@ -26,6 +26,20 @@ ROOT = Path(__file__).resolve().parent.parent
 AGENT = ROOT / "client" / "remotepower-agent.py"
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def stat_line(name, reads=0, rsect=0, rms=0, writes=0, wsect=0, wms=0, busy_ms=0, major=8, minor=0):
     """One /proc/diskstats line (the 14 fields every kernel since 2.6 has)."""
     return f"{major:4d} {minor:7d} {name} {reads} 0 {rsect} {rms} {writes} 0 {wsect} {wms} 0 {busy_ms} {busy_ms}\n"

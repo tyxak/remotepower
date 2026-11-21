@@ -37,6 +37,20 @@ RULES = {"services_watched": ["sshd.service"],
 ORIGINAL = {"services_watched": ["nginx.service"], "log_watch": []}
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class _Captured(SystemExit):
     def __init__(self, status, body):
         super().__init__(0)

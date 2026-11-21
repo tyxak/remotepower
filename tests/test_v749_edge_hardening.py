@@ -35,6 +35,20 @@ JS = ROOT / "server" / "html" / "static" / "js"
 API_SRC = (ROOT / "server" / "cgi-bin" / "api.py").read_text()
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 def run_node(script):
     r = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
     if r.returncode != 0:

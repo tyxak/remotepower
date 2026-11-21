@@ -26,6 +26,20 @@ sys.path.insert(0, str(ROOT / "server" / "cgi-bin"))
 import store_shapes  # noqa: E402
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class TestTheRegistryTypesIt(unittest.TestCase):
 
     def test_a_list_or_a_map_among_the_names_is_left_out(self):

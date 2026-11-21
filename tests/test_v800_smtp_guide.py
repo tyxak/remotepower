@@ -22,6 +22,20 @@ SAVED = {"smtp_host": "saved.example.com", "smtp_port": 587, "smtp_tls": "startt
          "smtp_username": "saved-user", "smtp_password": "saved-pw", "smtp_helo_name": "saved-helo", "smtp_recipients": "ops@example.com"}
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class TestTheMerge(unittest.TestCase):
 
     def test_each_of_the_eight_settings_replaces_the_saved_one_and_nothing_else_changes(self):

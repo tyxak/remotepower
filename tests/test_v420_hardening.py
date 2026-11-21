@@ -16,6 +16,20 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 
+def setUpModule():
+    # The request variables this module writes are put back by tearDownModule, so the next module of the process does not read them (tests/env_guard.py).
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 class _Base(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
