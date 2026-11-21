@@ -664,6 +664,17 @@ class TestAFeedThatKeepsFailing(_Server):
         self.assertTrue(self.state()['feeds'][FEED]['fail_alerted'])
         self.assertEqual(self.api.EVENT_REGISTRY[self.FAILING]['kind'], 'health')
 
+    def test_an_address_in_the_last_answer_is_not_passed_on(self):
+        """The alert goes to channels outside the installation. The answer of a read can hold the address it asked for, in any scheme, and that is replaced."""
+        self.settings(feeds=[FEED])
+        self.fail(6, error=ValueError('refused: https://news.example.net/security.xml?k=v and ftp://other.example/x and HTTP://UPPER.example/y'))
+        (alert,) = self.raised(self.FAILING)
+        blob = json.dumps(alert)
+        for leak in ('news.example.net/security.xml', 'other.example', 'UPPER.example', 'k=v', '://'):
+            self.assertNotIn(leak, blob, leak)
+        self.assertIn('an address', alert['payload']['detail'])
+        self.assertIn('refused:', alert['payload']['detail'], 'the rest of the answer is kept')
+
     def test_it_is_raised_once_however_long_the_feed_keeps_failing(self):
         """Once means one firing: an alert that is fired every time would be one row (a repeat of an open alert is folded into it) and a message through every channel at each read."""
         fired = []

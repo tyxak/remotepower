@@ -406,6 +406,8 @@ FAILURE_TEXT_SITES = {
     ('integration_recovered', 'detail'): 'same',
     ('remediation_failed', 'detail'): 'what a command the operator wrote printed on a host; no address of the installation is part of the request',
     ('edge_feed_down', 'detail'): 'a fixed phrase and the message of the Cloudflare API; an exception is told as its class name only (_safely)',
+    ('security_news_feed_failing', 'detail'): 'the feed by its title or host and the last answer of the read (_why, cut to 160 characters), with any address in it replaced by "an address" (_feed_event); the address of a feed holds no credential, a user name or a token parameter being refused when it is saved',
+    ('security_news_feed_recovered', 'detail'): 'a fixed sentence with the title or host of the feed, and no failure text',
     ('ip_reported', 'detail'): 'a count and the addresses that were reported',
 }
 CARRIERS = {'err', 'error', 'why', 'reason', 'exc', 'e', 'detail', 'msg', 'text', 'errtxt', 'last_error', '_e', 'ex', 'emsg'}

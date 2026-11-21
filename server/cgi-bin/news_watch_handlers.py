@@ -26,6 +26,7 @@ keeps its place in the list and stops counting for the mark of the sidebar and t
 """
 
 import hashlib
+import re
 import sys
 import time
 import urllib.error
@@ -119,6 +120,9 @@ def _fetch(url):
     return b"".join(chunks)
 
 
+_URL_IN_TEXT = re.compile(r"[a-z][a-z0-9+.-]*://\S+", re.I)
+
+
 def _feed_key(url):
     """What an alert about one feed is told apart by: a short hash of its address. Two feeds can have the same name, and the address itself stays out of the alert."""
     return "feed:" + hashlib.sha256(str(url).encode("utf-8", "replace")).hexdigest()[:12]
@@ -130,7 +134,7 @@ def _feed_event(kind, url, rec, streak=0):
     rec = rec if isinstance(rec, dict) else {}
     label = (str(rec.get("title") or "")[:120] or urllib.parse.urlsplit(str(url)).hostname or "a feed")
     if kind == "failing":
-        err = N._clean(str(rec.get("last_error") or ""), 160) or "no answer"
+        err = _URL_IN_TEXT.sub("an address", N._clean(str(rec.get("last_error") or ""), 160)) or "no answer"      # an address in an error text is not passed on: the alert goes to channels outside
         return "security_news_feed_failing", {"label": label, "dest": _feed_key(url), "detail": f"{label} could not be read {streak} times in a row. The last answer: {err}"[:300]}
     detail = "This feed is no longer watched." if kind == "removed" else f"{label} is read again."
     return "security_news_feed_recovered", {"label": label, "dest": _feed_key(url), "detail": detail}
