@@ -583,7 +583,9 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   built-in list can be added by name (up to 50) in the tab. **Clear !** on an item, and **Clear all !** above the list, clear the red ! of the items that show one: they stay
   listed with what runs on the hosts, stop counting for the mark on the sidebar and the tab, and the clear holds for every browser and operator (`POST /api/news-watch/clear`,
   platform operator only). A clear can be undone: **Bring back !** on a cleared item, and **Bring back all !** above the list, give the ! back in the state it had before
-  (the same route with `undo: true`; the audit log says `news_watch_unclear`). A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
+  (the same route with `undo: true`; the audit log says `news_watch_unclear`). **Words that make an item critical** (up to 50, one on each line: a flaw's nickname such as `wp2shell`, a
+  product's name, a phrase) are a seventh reason an item counts as critical, shown as **Matches a word you added**: a headline or summary that holds one as a whole word or phrase, in any
+  case, counts whatever else it says, except a round-up or a webinar. They apply to items found after the words are saved (`critical_words` in `POST /api/news-watch/config`). A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
   everyday words (`console-setup`, `command-not-found`, `liburi-perl`), and an article about a management console must not match them. A counting item raises the new event
   `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
   hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and

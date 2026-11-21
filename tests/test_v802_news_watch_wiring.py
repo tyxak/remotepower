@@ -228,6 +228,21 @@ class TestTheClientNamesIt(unittest.TestCase):
         self.assertNotIn('_nwSeen', srcpin.js_function(NW, '_nwPaint').split('if (!d.editable)')[1].split('return;')[0], 'a role that is shown nothing records nothing')
         self.assertIn("words: document.getElementById('nw-words').value", srcpin.js_function(NW, 'newsWatchSave'))
         self.assertIn("set('nw-words'", srcpin.js_function(NW, '_nwFillForm'))
+        self.assertIn("critical_words: document.getElementById('nw-critical-words').value", srcpin.js_function(NW, 'newsWatchSave'))
+        self.assertIn("set('nw-critical-words'", srcpin.js_function(NW, '_nwFillForm'))
+
+    def test_the_field_for_the_words_is_in_the_form_with_a_label_a_hint_and_room_for_fifty_words(self):
+        html = HTML
+        field = re.search(r'<label class="form-label" for="nw-critical-words">([^<]+)</label><textarea id="nw-critical-words"([^>]*)></textarea><div class="hint mt-6">([^<]+)</div>', html)
+        self.assertTrue(field, 'the label, the textarea and the hint are one group of the form')
+        self.assertEqual(field.group(1), 'Words that make an item critical, one on each line')
+        room = int(re.search(r'maxlength="(\d+)"', field.group(2)).group(1))
+        self.assertGreaterEqual(room, N.MAX_CRITICAL_WORDS * (40 + 1) , 'fifty words of forty characters and the line ends between them fit')
+        self.assertIn('It applies to items found after you save.', field.group(3), 'the hint says what the words do not do')
+        self.assertLess(html.index('id="nw-words"'), html.index('id="nw-critical-words"'), 'it follows the names of software')
+        self.assertLess(html.index('id="nw-critical-words"'), html.index('data-action="newsWatchSave"'), 'and comes before the button that saves')
+        self.assertEqual(N.REASONS[-1], 'word')
+        self.assertIn("word: 'Matches a word you added'", NW)
 
     def _node(self, script):
         d = Path(tempfile.mkdtemp(prefix='rp-newsnode-'))
@@ -297,7 +312,8 @@ class TestTheSentencesAreTranslated(unittest.TestCase):
         sentences |= {'Only items that name software running on my hosts', 'Other software to count, one name on each line',
                       'Names of software that is installed on your hosts and is not on the built-in list. A package whose name starts with one of them counts when a headline names it.',
                       'A security news item names software that runs on your hosts', 'Clear !', 'Clear all !', '! cleared', 'Say which items to clear',
-                      'Bring back !', 'Bring back all !', 'Say which items to bring back'}
+                      'Bring back !', 'Bring back all !', 'Say which items to bring back', 'Words that make an item critical, one on each line',
+                      'A headline or summary that holds one of them as a word or phrase counts as critical, whatever else it says: the nickname of a flaw, or the name of a product you do not want to miss. It applies to items found after you save.'}
         self.assertGreaterEqual(len(sentences), 20, 'control: the scan found the sentences')
         missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in sorted(sentences) if not set(LANGS) <= rows.get(s, set())}
         self.assertEqual(missing, {}, 'sentences the Security news tab shows with no translation')

@@ -143,6 +143,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
     def tearDown(self):
         self.page.evaluate("""() => {
           document.querySelectorAll('.modal-overlay.active').forEach(m => closeModal(m.id));
+          document.querySelectorAll('.toast').forEach(t => t.remove());          // a refusal's toast of one test is not the answer the next one waits for
           if (window.__realApi) { window.api = window.__realApi; window.__realApi = null; }
           try { localStorage.removeItem('pgtab.cve'); localStorage.removeItem('rp_news_seen'); } catch (e) {}
           if (typeof _nwAt !== 'undefined') _nwAt = 0;      // the tab draws at most every few seconds: the next test is a new visit
@@ -558,8 +559,8 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.page.wait_for_function("() => !document.getElementById('news-watch-run').hidden", timeout=30000)
         posts = [r for r in self.requests if r[0] == "POST" and r[1] == "/news-watch/config"]
         self.assertEqual(len(posts), 1, self.requests)
-        self.assertEqual(json.loads(posts[0][2]), {"enabled": True, "feeds": "%s\n%s" % (LOCAL_A, LOCAL_B), "scope": "all", "action": "alert", "words": ""})
-        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A, LOCAL_B], "scope": "all", "action": "alert", "words": []})
+        self.assertEqual(json.loads(posts[0][2]), {"enabled": True, "feeds": "%s\n%s" % (LOCAL_A, LOCAL_B), "scope": "all", "action": "alert", "words": "", "critical_words": ""})
+        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A, LOCAL_B], "scope": "all", "action": "alert", "words": [], "critical_words": []})
         self.assertEqual(self.page.input_value("#nw-feeds"), "%s\n%s" % (LOCAL_A, LOCAL_B), "the form shows what the server kept")
         self.assertEqual(self.page.eval_on_selector_all("#news-watch-items > div", "e => e.length"), 6, "saving does not lose what the watch found")
         self.assertEqual(self.page.inner_text("#news-watch-note").strip(), "", "last read a few minutes ago: nothing to say")
@@ -572,11 +573,62 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.page.fill("#nw-feeds", LOCAL_A)
         self.page.click('#news-watch-form button[data-action="newsWatchSave"]')
         self.page.wait_for_function("() => !document.getElementById('news-watch-run').hidden", timeout=30000)
-        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A], "scope": "running", "action": "scan", "words": ["unrealircd", "squidguard"]})
+        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A], "scope": "running", "action": "scan", "words": ["unrealircd", "squidguard"], "critical_words": []})
         self.assertEqual(self.page.input_value("#nw-words"), "unrealircd\nsquidguard", "the form shows the names as the server kept them")
         self.assertEqual(self.page.input_value("#nw-scope"), "running")
         self.page.evaluate("async () => { await newsWatchLoad(); }")
         self.assertEqual((self.page.input_value("#nw-scope"), self.page.input_value("#nw-words")), ("running", "unrealircd\nsquidguard"), "and again after a reload from the server")
+
+    def test_the_words_that_make_an_item_critical_are_saved_cleaned_and_shown_again(self):
+        self.open_tab()
+        self.page.check("#nw-enabled")
+        self.page.fill("#nw-feeds", LOCAL_A)
+        self.assertEqual(self.page.input_value("#nw-critical-words"), "", "none yet")
+        self.page.fill("#nw-critical-words", "WP2Shell\nremote  code execution, wp2shell")
+        del self.requests[:]
+        self.page.click('#news-watch-form button[data-action="newsWatchSave"]')
+        self.page.wait_for_function("() => !document.getElementById('news-watch-run').hidden", timeout=30000)
+        (post,) = [r for r in self.requests if r[0] == "POST" and r[1] == "/news-watch/config"]
+        self.assertEqual(json.loads(post[2])["critical_words"], "WP2Shell\nremote  code execution, wp2shell", "what was typed is what is sent")
+        self.assertEqual(read("config.json")["news_watch"]["critical_words"], ["wp2shell", "remote code execution"])
+        self.assertEqual(self.page.input_value("#nw-critical-words"), "wp2shell\nremote code execution", "the form shows the words as the server kept them")
+        self.page.evaluate("async () => { await newsWatchLoad(); }")
+        self.assertEqual(self.page.input_value("#nw-critical-words"), "wp2shell\nremote code execution", "and again after a reload from the server")
+
+    def test_an_everyday_critical_word_is_refused_with_the_reason_and_nothing_is_saved(self):
+        self.open_tab()
+        self.page.check("#nw-enabled")
+        self.page.fill("#nw-critical-words", "wp2shell\npatch")
+        self.page.click('#news-watch-form button[data-action="newsWatchSave"]')
+        self.page.wait_for_selector(".toast.error", timeout=30000)
+        self.assertIn("patch is an everyday word", self.page.inner_text(".toast.error"))
+        self.assertEqual(read("config.json")["news_watch"], self.config0["news_watch"])
+
+    def test_an_item_that_matched_a_word_says_so_in_all_six_languages(self):
+        doc = read("news_watch.json")
+        doc["items"][0]["reasons"] = ["word"]
+        write("news_watch.json", doc)
+        self.open_tab()
+        grab = """() => ({
+          chip: document.querySelector('#news-watch-items > div:first-child .status-pill.warn').textContent.trim(),
+          label: document.querySelector('label[for="nw-critical-words"]').textContent.trim(),
+          hint: document.querySelector('#nw-critical-words ~ .hint').textContent.trim(),
+        })"""
+        self.page.evaluate("async () => { await _ensureI18n(); }")
+        english = self.page.evaluate(grab)
+        self.assertEqual(english["chip"], "Matches a word you added")
+        self.assertEqual(english["label"], "Words that make an item critical, one on each line")
+        self.assertTrue(english["hint"].startswith("A headline or summary that holds one of them"))
+        bad = []
+        try:
+            for lang in LANGS:
+                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                self.page.wait_for_timeout(300)
+                now = self.page.evaluate(grab)
+                bad += [(lang, k) for k, en in english.items() if now[k] == en]
+        finally:
+            self.page.evaluate("() => RPi18n.setLang('en', false)")
+        self.assertEqual(bad, [])
 
     def test_an_everyday_word_is_refused_with_the_reason_and_nothing_is_saved(self):
         self.open_tab()

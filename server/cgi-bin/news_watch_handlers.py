@@ -231,7 +231,7 @@ def poll_once(now=None, fetch=None):
                 summary["failed"] += 1
                 continue
             was_baselined = prev.get("baselined") is True
-            rec, new = N.process(prev, got["items"], now, kev)
+            rec, new = N.process(prev, got["items"], now, kev, cfg["critical_words"])
             rec.update(title=got["title"] or str(prev.get("title") or ""), last_try=now, last_ok=now, last_error="", fail_streak=0, last_new=len(new))
             rec["last_critical"] = sum(1 for it in new if it["critical"])
             fst[url] = rec
@@ -449,6 +449,7 @@ def _view(now):
         "scope": cfg["scope"],
         "action": cfg["action"],
         "words": cfg["words"],
+        "critical_words": cfg["critical_words"],
         "max_words": N.MAX_WORDS,
         "every": EVERY_S,
         "scan_gap": SCAN_GAP_S,
@@ -494,7 +495,7 @@ def handle_news_watch_config_set():
         if after["enabled"] and (not before["enabled"] or after["feeds"] != before["feeds"]):
             cfg.pop("last_news_watch_run", None)
     hosts = ",".join(sorted({urllib.parse.urlsplit(u).hostname or "" for u in after["feeds"]}))
-    A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} words={len(after['words'])} feeds={hosts}"[:300])
+    A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} words={len(after['words'])} critical_words={len(after['critical_words'])} feeds={hosts}"[:300])
     A.respond(200, dict(_view(int(time.time())), ok=True))
 
 

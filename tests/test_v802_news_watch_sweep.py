@@ -536,6 +536,86 @@ class TestWhatCounts(_Server):
         self.assertEqual(self.request('/api/news-watch')[1]['words'], ['unrealircd', 'squidguard'])
 
 
+
+class TestCriticalWordsEndToEnd(_Server):
+    """The words an operator chooses (8.0.2): a seventh reason an item counts as critical, from the settings to the alert."""
+
+    WP = ('A new wp2shell attack on WordPress sites', 'Researchers describe how it works.')
+
+    def test_a_word_in_the_settings_makes_the_next_read_find_the_item_critical_and_the_alert_names_it(self):
+        self.settings(scope='all', action='alert', critical_words=['wp2shell'])
+        self.poll(QUIET)
+        out = self.poll(QUIET, self.WP, advance=1800)
+        self.assertEqual((out['new_critical'], out['alerts']), (1, 1), out)
+        (item,) = [i for i in self.state()['items'] if i['title'] == self.WP[0]]
+        self.assertEqual((item['reasons'], item['outcome']), (['word'], 'alerted'))
+        (alert,) = self.alerts()
+        self.assertIn(self.WP[0], json.dumps(alert), 'the alert names the headline')
+        self.assertEqual(self.get_page()['items'][0]['reasons'], ['word'], 'and the page is told the reason')
+
+    def test_without_the_word_the_same_headline_is_not_critical(self):
+        self.settings(scope='all', action='alert')
+        self.poll(QUIET)
+        out = self.poll(QUIET, self.WP, advance=1800)
+        self.assertEqual((out['new_critical'], out['alerts']), (0, 0))
+        self.assertEqual([i for i in self.state().get('items', []) if i['title'] == self.WP[0]], [])
+
+    def test_a_word_only_makes_it_critical_and_what_counts_for_you_still_decides_what_is_done(self):
+        self.settings(scope='running', action='scan', critical_words=['wp2shell'])
+        self.poll(QUIET)
+        self.poll(QUIET, self.WP, advance=1800)
+        (item,) = [i for i in self.state()['items'] if i['title'] == self.WP[0]]
+        self.assertEqual((item['reasons'], item['outcome']), (['word'], 'listed'), 'no host runs software it names: it is listed and does nothing else')
+        self.assertEqual((self.alerts(), self.spawned), ([], []))
+
+    def test_a_round_up_that_holds_the_word_is_not_critical(self):
+        self.settings(scope='all', action='alert', critical_words=['wp2shell'])
+        self.poll(QUIET)
+        out = self.poll(QUIET, ('Weekly Recap: wp2shell, and four other stories', 'A round-up.'), advance=1800)
+        self.assertEqual(out['new_critical'], 0)
+
+    def test_words_added_later_do_not_reclassify_what_was_already_read(self):
+        self.settings(scope='all', action='alert')
+        self.poll(QUIET)
+        self.poll(QUIET, self.WP, advance=1800)
+        self.settings(scope='all', action='alert', critical_words=['wp2shell'])
+        out = self.poll(QUIET, self.WP, advance=1800)
+        self.assertEqual(out['new_critical'], 0, 'the item was read before the word was chosen: it is not new now')
+        self.assertEqual([i for i in self.state().get('items', []) if i['title'] == self.WP[0]], [])
+        out = self.poll(QUIET, self.WP, ('Another wp2shell story', 'More.'), advance=1800)
+        self.assertEqual(out['new_critical'], 1, 'an item found after the word was chosen counts')
+
+    def test_the_words_are_saved_cleaned_returned_logged_and_a_bad_one_refuses_the_whole_save(self):
+        st, got = self.request('/api/news-watch/config', 'POST', body={'critical_words': 'WP2Shell\nlog4shell, remote  code execution; wp2shell', 'scope': 'running'})
+        self.assertEqual((st, got['critical_words'], got['scope']), (200, ['wp2shell', 'log4shell', 'remote code execution'], 'running'), got)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch']['critical_words'], ['wp2shell', 'log4shell', 'remote code execution'])
+        self.assertIn('critical_words=3', self.audits[-1][2])
+        self.assertEqual(self.request('/api/news-watch')[1]['critical_words'], ['wp2shell', 'log4shell', 'remote code execution'])
+        for bad, text in (({'critical_words': ['patch']}, 'everyday word'), ({'critical_words': ['ab']}, 'critical word is a name or phrase'), ({'critical_words': [5]}, 'text'),
+                          ({'critical_words': 7}, 'list'), ({'critical_words': ['word%03d' % i for i in range(N.MAX_CRITICAL_WORDS + 1)]}, 'at most')):
+            st, got = self.request('/api/news-watch/config', 'POST', body=dict(bad, scope='all'))
+            self.assertEqual(st, 400, bad)
+            self.assertIn(text, got['error'], bad)
+        self.api._LOAD_CACHE.clear()
+        stored = self.api.load(self.api.CONFIG_FILE)['news_watch']
+        self.assertEqual((stored['scope'], stored['critical_words']), ('running', ['wp2shell', 'log4shell', 'remote code execution']), 'nothing of a refused save was kept')
+
+    def test_a_save_that_does_not_name_the_words_leaves_them_as_they_are_and_an_empty_one_clears_them(self):
+        self.request('/api/news-watch/config', 'POST', body={'critical_words': ['wp2shell']})
+        st, got = self.request('/api/news-watch/config', 'POST', body={'scope': 'all'})
+        self.assertEqual((st, got['critical_words']), (200, ['wp2shell']))
+        st, got = self.request('/api/news-watch/config', 'POST', body={'critical_words': ''})
+        self.assertEqual((st, got['critical_words']), (200, []))
+
+    def test_nobody_but_the_platform_operator_may_choose_them(self):
+        self.tenancy()
+        for token in ('v', 'b'):
+            st, got = self.request('/api/news-watch/config', 'POST', token=token, body={'critical_words': ['wp2shell']})
+            self.assertEqual(st, 403, (token, got))
+        self.api._LOAD_CACHE.clear()
+        self.assertNotIn('critical_words', self.api.load(self.api.CONFIG_FILE)['news_watch'])
+
 # ── the mark of the tab and of the sidebar ───────────────────────────────────
 
 class TestTheMark(_Server):
@@ -1046,7 +1126,7 @@ class TestTheRoutes(_Server):
         st, got = self.request('/api/news-watch/config', 'POST', body={'action': 'alert', 'feeds': f'{FEED2}\n\n{FEED}'})
         self.assertEqual((st, got['ok'], got['action'], got['feeds'], got['scope'], got['enabled']), (200, True, 'alert', [FEED2, FEED], 'relevant', True))
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert', 'words': []})
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert', 'words': [], 'critical_words': []})
         a = self.audits[-1]
         self.assertEqual(a[1], 'news_watch_config')
         self.assertIn('feeds=news.example.net,other.example.org', a[2])

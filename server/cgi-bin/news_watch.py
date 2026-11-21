@@ -3,9 +3,10 @@
 Reads an RSS or Atom feed of security news, finds the items that report a critical flaw, and keeps what it has already seen. It does no network
 or storage work: `news_watch_handlers` fetches, saves and raises the alerts, and calls into here with bytes, dicts and a clock.
 
-An item counts as critical when its headline or summary says so in one of six ways (see `classify`): the word "critical" beside a word for a flaw,
-a CVSS score of 9.0 or more, a zero-day, active exploitation, code execution without signing in, or a CVE id that CISA lists as known to be exploited.
-The reasons are returned as short codes, so the page can say them in the reader's language.
+An item counts as critical when its headline or summary says so in one of seven ways (see `classify`): the word "critical" beside a word for a flaw,
+a CVSS score of 9.0 or more, a zero-day, active exploitation, code execution without signing in, a CVE id that CISA lists as known to be exploited, or a word
+or phrase the operator chose (`critical_words`: the nickname of a flaw, the name of a product that is not to be missed). The reasons are returned as short
+codes, so the page can say them in the reader's language.
 
 An item is relevant when it names software the hosts have installed (`vocabulary`, `software_in`). The package names of the fleet are reduced to
 the first word of the name, and a stop list keeps the words that are also package names ("patch", "file", "which") from matching every article.
@@ -14,6 +15,7 @@ Feed text is untrusted. It is parsed through safe_xml, cut to fixed lengths, str
 link is kept. Nothing here treats it as anything but text.
 """
 
+import functools
 import hashlib
 import html
 import re
@@ -37,10 +39,12 @@ DEFAULTS = {
     "scope": "relevant",
     "action": "scan",
     "words": [],
+    "critical_words": [],
 }
 
 MAX_FEEDS = 5
 MAX_WORDS = 50  # names of software an operator adds to the built-in list
+MAX_CRITICAL_WORDS = 50  # words and phrases an operator chooses to make an item critical
 MAX_URL_LEN = 300
 MAX_FEED_BYTES = 2_000_000  # what one fetch may return
 MAX_ITEMS_PER_FEED = 60  # items read from one feed
@@ -52,8 +56,8 @@ TEXT_LEN = 1500  # the part of an item's summary that is read
 LINK_LEN = 500
 MAX_CVES = 10
 
-# the six reasons an item counts as critical, as the codes the page translates
-REASONS = ("critical", "cvss", "zero_day", "exploited", "unauth_exec", "kev")
+# the seven reasons an item counts as critical, as the codes the page translates
+REASONS = ("critical", "cvss", "zero_day", "exploited", "unauth_exec", "kev", "word")
 
 # the outcome recorded for each critical item
 OUTCOMES = (
@@ -169,6 +173,39 @@ def clean_words(raw):
     return out, None
 
 
+_CRITICAL_WORD_OK = re.compile(r"^[a-z0-9][a-z0-9 ._-]{1,38}[a-z0-9]$")
+
+
+def clean_critical_words(raw):
+    """(the words, None) for a list of words and phrases that make an item critical, or (None, why).
+
+    One word or phrase on each line, or split by commas or semicolons, in lower case with its blanks collapsed: `wp2shell`, `log4shell`, `remote code execution`. It is matched
+    as a whole word or phrase in an item's headline or summary (`critical_word_in`). 3 to 40 characters of letters, digits, blanks, dots, hyphens and underscores, at most
+    MAX_CRITICAL_WORDS. An everyday word on its own (the stop list of the software names) is refused: it would make nearly every item critical.
+    """
+    if isinstance(raw, str):
+        raw = [w for w in re.split(r"[\r\n,;]+", raw) if w.strip()]
+    if not isinstance(raw, list):
+        return None, "critical_words is a list of words and phrases"
+    out = []
+    for w in raw:
+        if not isinstance(w, str):
+            return None, "a critical word is text"
+        word = _SPACE.sub(" ", w).strip().lower()
+        if not _CRITICAL_WORD_OK.match(word):
+            return (
+                None,
+                f"a critical word is a name or phrase of letters and digits, 3 to 40 characters: {_clean(w, 40)}",
+            )
+        if " " not in word and word in STOP:
+            return None, f"{word} is an everyday word, and it would make nearly every item critical"
+        if word not in out:
+            out.append(word)
+    if len(out) > MAX_CRITICAL_WORDS:
+        return None, f"at most {MAX_CRITICAL_WORDS} words"
+    return out, None
+
+
 def settings(raw):
     """The settings as they are stored, read defensively: a document edited by hand, or written by an older release, never raises. Anything
     that is not valid reads as the default for that field; an address that is not valid is left out of the list.
@@ -177,6 +214,7 @@ def settings(raw):
     out = dict(DEFAULTS)
     out["feeds"] = list(DEFAULT_FEEDS)
     out["words"] = []
+    out["critical_words"] = []
     if raw.get("enabled") is True:
         out["enabled"] = True
     feeds = raw.get("feeds")
@@ -197,6 +235,16 @@ def settings(raw):
             ok, _ = clean_words([w]) if isinstance(w, str) else (None, None)
             if ok and ok[0] not in out["words"] and len(out["words"]) < MAX_WORDS:
                 out["words"].append(ok[0])
+    critical = raw.get("critical_words")
+    if isinstance(critical, list):
+        for w in critical:
+            ok, _ = clean_critical_words([w]) if isinstance(w, str) else (None, None)
+            if (
+                ok
+                and ok[0] not in out["critical_words"]
+                and len(out["critical_words"]) < MAX_CRITICAL_WORDS
+            ):
+                out["critical_words"].append(ok[0])
     return out
 
 
@@ -238,6 +286,11 @@ def clean_update(body):
         if why:
             return None, why
         update["words"] = words
+    if "critical_words" in body:
+        critical, why = clean_critical_words(body["critical_words"])
+        if why:
+            return None, why
+        update["critical_words"] = critical
     return update, None
 
 
@@ -425,6 +478,31 @@ _NOT_NEWS = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=32)
+def _critical_patterns(words):
+    """The compiled patterns of a tuple of clean critical words: the word or phrase, with any blanks between its parts, and not inside a longer word."""
+    return tuple(
+        (
+            w,
+            re.compile(
+                r"(?<![a-z0-9])" + r"\s+".join(re.escape(p) for p in w.split(" ")) + r"(?![a-z0-9])"
+            ),
+        )
+        for w in words
+    )
+
+
+def critical_word_in(text, words):
+    """The first of `words` (clean, as `clean_critical_words` makes them) that `text` holds as a whole word or phrase, in any case, or None."""
+    if not words or not isinstance(text, str):
+        return None
+    low = text.lower()
+    for word, pattern in _critical_patterns(tuple(words)):
+        if pattern.search(low):
+            return word
+    return None
+
+
 def cves_in(text):
     """The CVE ids in `text`, upper case, in the order they first appear, at most MAX_CVES."""
     seen = []
@@ -435,10 +513,11 @@ def cves_in(text):
     return seen[:MAX_CVES]
 
 
-def classify(title, summary, kev=()):
+def classify(title, summary, kev=(), words=()):
     """{'critical': bool, 'reasons': [code], 'cves': [CVE id], 'cvss': float or None} for an item.
 
-    `kev` is the set of upper-case CVE ids CISA lists as known to be exploited. A round-up, webinar or checklist (by its headline) is never critical.
+    `kev` is the set of upper-case CVE ids CISA lists as known to be exploited. `words` are the operator's critical words, clean: an item that holds one counts, with the
+    reason `word`, whatever else it says. A round-up, webinar or checklist (by its headline) is never critical, with or without a word.
     """
     title, summary = title or "", summary or ""
     text = f"{title}. {summary}"
@@ -463,6 +542,8 @@ def classify(title, summary, kev=()):
         reasons.append("unauth_exec")
     if kev and any(c in kev for c in cves):
         reasons.append("kev")
+    if critical_word_in(text, words):
+        reasons.append("word")
     out["critical"] = bool(reasons)
     return out
 
@@ -729,7 +810,7 @@ def mentions(text, fleet):
 # ── what has been seen ───────────────────────────────────────────────────────
 
 
-def process(prev, items, now, kev=()):
+def process(prev, items, now, kev=(), words=()):
     """(the feed's record after this read, the items that are new). `prev` is the record from the last read, or {} for a feed never read.
 
     The first read of a feed records everything it holds as seen and marks nothing fresh, so switching the watch on does not raise an alert for each
@@ -749,7 +830,7 @@ def process(prev, items, now, kev=()):
         if it["id"] in seen:
             continue
         seen[it["id"]] = now
-        c = classify(it["title"], it["summary"], kev)
+        c = classify(it["title"], it["summary"], kev, words)
         age_ok = it["published"] is None or now - it["published"] <= MAX_AGE_S
         new.append(
             {

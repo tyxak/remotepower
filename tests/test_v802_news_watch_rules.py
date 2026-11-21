@@ -199,6 +199,75 @@ class TestClassify(unittest.TestCase):
 
 # ── does it concern the hosts ────────────────────────────────────────────────
 
+class TestCriticalWords(unittest.TestCase):
+    """The seventh reason (8.0.2): a word or phrase the operator chose. The nickname of a flaw comes before its CVE and its score, and a product name is worth a headline."""
+
+    def test_a_word_makes_an_item_critical_whatever_else_it_says(self):
+        got = N.classify('A new wp2shell attack on WordPress sites', 'Researchers describe how it works.', set(), ['wp2shell'])
+        self.assertEqual((got['critical'], got['reasons']), (True, ['word']))
+        self.assertEqual(N.classify('A new wp2shell attack on WordPress sites', '', set(), [])['critical'], False, 'control: with no word it is not critical')
+        self.assertEqual(N.classify('A new wp2shell attack on WordPress sites', '', set())['reasons'], [], 'and the default is no words')
+
+    def test_it_is_a_whole_word_or_phrase_in_any_case_in_the_headline_or_the_summary(self):
+        words = ['wp2shell', 'remote code execution']
+        self.assertEqual(N.classify('Fresh WP2Shell research', '', set(), words)['reasons'], ['word'], 'any case')
+        self.assertEqual(N.classify('Quiet news', 'Details of the wp2shell family.', set(), words)['reasons'], ['word'], 'the summary counts')
+        self.assertEqual(N.classify('wp2shells everywhere', '', set(), words)['reasons'], [], 'inside a longer word is not the word')
+        self.assertEqual(N.classify('awp2shell', '', set(), words)['reasons'], [], 'nor at the end of one')
+        self.assertEqual(N.classify('Quiet news about Remote  Code\nExecution tooling', '', set(), words)['reasons'], ['word'], 'a phrase, with any blanks between its parts')
+        self.assertEqual(N.classify('remote code', 'execution is not the phrase together', set(), words)['reasons'], [], 'the parts apart are not the phrase')
+
+    def test_it_comes_with_the_other_reasons_and_not_instead_of_them(self):
+        got = N.classify('Critical wp2shell flaw is being actively exploited', '', set(), ['wp2shell'])
+        self.assertEqual(got['reasons'], ['critical', 'exploited', 'word'], 'in the order of the reasons, the word last')
+        self.assertTrue(set(got['reasons']) <= set(N.REASONS))
+        self.assertEqual(N.REASONS[-1], 'word')
+
+    def test_a_round_up_or_a_webinar_is_not_critical_for_a_word_either(self):
+        for title in ('Weekly Recap: wp2shell and more', 'Webinar: how wp2shell works', 'ThreatsDay Bulletin: wp2shell', 'A checklist after wp2shell'):
+            self.assertEqual(N.classify(title, '', set(), ['wp2shell'])['critical'], False, title)
+
+    def test_the_words_an_operator_writes_are_cleaned_and_the_everyday_ones_refused(self):
+        self.assertEqual(N.clean_critical_words('wp2shell\nPHP2Shell, remote  code execution; Log4Shell\n\n  wp2shell '), (['wp2shell', 'php2shell', 'remote code execution', 'log4shell'], None),
+                         'a line, a comma or a semicolon ends a word; blanks inside are one; each is kept once')
+        self.assertEqual(N.clean_critical_words(''), ([], None))
+        self.assertEqual(N.clean_critical_words(['Foo-Bar', 'a.b.c', 'x_y_z']), (['foo-bar', 'a.b.c', 'x_y_z'], None))
+        for bad, text in ((['ab'], 'ab'), (['x' * 41], 'x' * 40), (['-lead'], '-lead'), (['trail-'], 'trail-'), (['has/slash'], 'has/slash'), (['semi:colon'], 'semi:colon'), ([5], 'text'), (7, 'list'),
+                          (['patch'], 'patch'), (['file'], 'file')):
+            words, why = N.clean_critical_words(bad)
+            self.assertIsNone(words, bad)
+            self.assertIn(text, why, bad)
+        self.assertEqual(N.clean_critical_words(['patch notes'])[1], None, 'an everyday word inside a phrase is part of the phrase')
+        words, why = N.clean_critical_words(['okword', '<script>alert(1)</script>'])
+        self.assertIsNone(words)
+        self.assertNotIn('<', why, 'what was typed is shown without its markup')
+        many = ['word%03d' % i for i in range(N.MAX_CRITICAL_WORDS)]
+        self.assertEqual(N.clean_critical_words(many), (many, None))
+        self.assertIn('at most', N.clean_critical_words(many + ['word999'])[1])
+
+    def test_they_are_read_defensively_one_at_a_time_and_kept_in_the_settings(self):
+        got = N.settings({'critical_words': ['WP2Shell', 'ab', 5, None, 'wp2shell', 'patch', 'remote code execution', 'has/slash']})
+        self.assertEqual(got['critical_words'], ['wp2shell', 'remote code execution'], 'a damaged entry is left out and the others stay')
+        for junk in ('wp2shell', {'a': 1}, 7, None):
+            self.assertEqual(N.settings({'critical_words': junk})['critical_words'], [])
+        self.assertEqual(len(N.settings({'critical_words': ['word%03d' % i for i in range(N.MAX_CRITICAL_WORDS + 20)]})['critical_words']), N.MAX_CRITICAL_WORDS)
+        self.assertEqual(N.settings(None)['critical_words'], [])
+        self.assertIsNot(N.settings(None)['critical_words'], N.settings(None)['critical_words'])
+        self.assertEqual(N.clean_update({'critical_words': 'wp2shell\nlog4shell'}), ({'critical_words': ['wp2shell', 'log4shell']}, None))
+        self.assertEqual(N.clean_update({'scope': 'all'}), ({'scope': 'all'}, None), 'a field that is not in the body is left as it is')
+        update, why = N.clean_update({'critical_words': ['patch']})
+        self.assertIsNone(update)
+        self.assertIn('everyday word', why)
+
+    def test_process_classifies_new_items_with_the_words(self):
+        rec, new = N.process({}, parsed(('a', 'A wp2shell attack', '', NOW - 60)), NOW, (), ['wp2shell'])
+        self.assertEqual([(n['critical'], n['reasons']) for n in new], [(True, ['word'])])
+        rec, new = N.process(rec, parsed(('a', 'A wp2shell attack', '', NOW - 60), ('b', 'More about wp2shell', '', NOW - 30), ('c', 'Quiet', '', NOW - 30)), NOW + 1800, (), ['wp2shell'])
+        self.assertEqual([(n['id'], n['critical'], n['fresh']) for n in new], [('b', True, True), ('c', False, True)])
+        rec, new = N.process({}, parsed(('d', 'A wp2shell attack', '', NOW - 60)), NOW)
+        self.assertEqual([n['critical'] for n in new], [False], 'with no words given, the same headline is not critical')
+
+
 class TestRelevance(unittest.TestCase):
 
     def test_a_package_is_one_word(self):
@@ -454,14 +523,14 @@ class TestSettings(unittest.TestCase):
 
     def test_the_defaults_are_off_and_read_the_one_feed(self):
         s = N.settings(None)
-        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan', 'words': []})
+        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan', 'words': [], 'critical_words': []})
         self.assertIsNot(N.settings(None)['feeds'], N.settings(None)['feeds'], 'a copy each time: one caller cannot change the next one default')
 
     def test_damaged_settings_read_as_defaults_field_by_field(self):
         s = N.settings({'enabled': 'yes', 'feeds': 'not a list', 'scope': 'everything', 'action': 7})
         self.assertEqual(s, N.settings(None))
         s = N.settings({'enabled': True, 'feeds': ['https://a.example/rss', 'javascript:alert(1)', 5, 'https://a.example/rss', 'https://u:p@b.example/x'], 'scope': 'all', 'action': 'list'})
-        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list', 'words': []})
+        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list', 'words': [], 'critical_words': []})
 
     def test_a_feed_address_has_to_be_a_public_looking_http_address(self):
         good = ['https://feeds.example.net/rss.xml', 'http://news.example.net/feed?format=rss', 'https://news.example.net:8443/a/b.atom', 'https://xn--bcher-kva.example/feed',

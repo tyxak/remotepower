@@ -24,6 +24,7 @@ const _NW_REASON = {
   exploited: 'Exploited in attacks',
   unauth_exec: 'Code execution without signing in',
   kev: 'CVE that CISA lists as exploited',
+  word: 'Matches a word you added',
 };
 const _NW_OUTCOME = {
   baseline: 'Seen when the feed was first read, so no alert',
@@ -105,6 +106,7 @@ function _nwFillForm(d) {
   set('nw-feeds', el => { const v = (d.feeds || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-scope', el => { el.value = d.scope; });
   set('nw-words', el => { const v = (d.words || []).join('\n'); el.defaultValue = v; el.value = v; });
+  set('nw-critical-words', el => { const v = (d.critical_words || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-action', el => { el.value = d.action; });
   _nwFormLoaded = true;
 }
@@ -184,6 +186,7 @@ async function newsWatchSave() {
     scope: document.getElementById('nw-scope').value,
     action: document.getElementById('nw-action').value,
     words: document.getElementById('nw-words').value,
+    critical_words: document.getElementById('nw-critical-words').value,
   };
   const r = await api('POST', '/news-watch/config', body);
   if (!r || r.error) { failToast(r); return; }

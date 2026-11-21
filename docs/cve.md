@@ -581,8 +581,17 @@ An item counts as critical when its headline or summary does one of these:
 - says attackers exploit a flaw, or that it is exploited in the wild
 - describes code execution that needs no sign-in
 - names a CVE that CISA lists as known to be exploited
+- holds a word or phrase you chose (see below)
 
-Round-ups, webinars and checklists never count, even when they list every flaw of the week. Each item on the tab shows which of these it met.
+Round-ups, webinars and checklists never count, even when they list every flaw of the week, and that includes a headline that holds one of your words. Each item on the tab shows which of
+these it met.
+
+**Words that make an item critical.** A flaw often travels under a nickname before it has a CVE or a score, and some products you do not want to miss a word about. Under **Words that
+make an item critical**, write one word or phrase on each line (`wp2shell`, `log4shell`, `remote code execution`), up to 50. A headline or summary that holds one of them as a whole word
+or phrase, in any case, counts as critical whatever else it says, and its item shows **Matches a word you added**. `wp2shell` does not match inside `wp2shells`. Each is 3 to 40 letters,
+digits, blanks, dots, hyphens or underscores; a single everyday word such as `patch` or `file` is refused, since it would make nearly every item critical. The words apply to items
+found after you save: an item the watch has already recorded keeps the reasons it was recorded with. Which items then count for you, and what is done with them, is decided by the two choices
+below, as for any other critical item.
 
 ### Which critical items count for you
 
