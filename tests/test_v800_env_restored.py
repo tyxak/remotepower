@@ -8,6 +8,12 @@ so the last module imported decided what every module saw until it set its own. 
 
 The population here is every tests/test_*.py, read by syntax tree, and two rules hold at ceiling zero: no module-level write, and no module that writes without a way back. Each
 rule has a control that fails when the scan finds nothing, and the guard has its own cases.
+
+8.0.2: the scan followed the name `os` only. A module that imports it under another name (`import os as _os` in a helper, 61 of the modules import it that way or import `environ`
+itself) was not in the population at all, and five of them wrote request variables and never put them back: test_improvements_w1 and test_improvements_w3 and test_v410 (QUERY_STRING,
+and HTTP_HOST), test_v342 (REQUEST_METHOD) and test_synology (three variables, written at import). The next module that did not set its own QUERY_STRING read the one left behind:
+tests.test_v640_client_errors answered a list instead of an object after test_improvements_w1, in a shared process only. The scan follows every name `os` is imported as, and
+`from os import environ [as ...]`.
 """
 
 import ast
@@ -23,19 +29,32 @@ sys.path.insert(0, str(_TESTS))
 import env_guard  # noqa: E402
 
 
-def is_env(node):
-    return isinstance(node, ast.Attribute) and node.attr == 'environ' and isinstance(node.value, ast.Name) and node.value.id == 'os'
+def os_names(tree):
+    """(the names `os` is imported as anywhere in the module, the names `environ` is imported as). A function-level `import os as _os` counts: it is where the aliases are."""
+    names, environ = {'os'}, set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            names |= {a.asname or a.name for a in n.names if a.name == 'os'}
+        elif isinstance(n, ast.ImportFrom) and n.module == 'os':
+            environ |= {a.asname or a.name for a in n.names if a.name == 'environ'}
+    return names, environ
 
 
-def writes_in(node):
-    """The request variables a statement writes into os.environ: os.environ[K] = ..., os.environ.setdefault(K, ...), os.environ.update({K: ...})."""
+def is_env(node, names=('os',), environ=()):
+    if isinstance(node, ast.Attribute) and node.attr == 'environ' and isinstance(node.value, ast.Name) and node.value.id in names:
+        return True
+    return isinstance(node, ast.Name) and node.id in environ
+
+
+def writes_in(node, names=('os',), environ=()):
+    """The request variables a statement writes into os.environ: os.environ[K] = ..., os.environ.setdefault(K, ...), os.environ.update({K: ...}), under any name `os` has."""
     out = []
     for n in ast.walk(node):
         if isinstance(n, ast.Assign):
             for t in n.targets:
-                if isinstance(t, ast.Subscript) and is_env(t.value) and isinstance(t.slice, ast.Constant) and isinstance(t.slice.value, str) and env_guard.REQUEST_VAR.match(t.slice.value):
+                if isinstance(t, ast.Subscript) and is_env(t.value, names, environ) and isinstance(t.slice, ast.Constant) and isinstance(t.slice.value, str) and env_guard.REQUEST_VAR.match(t.slice.value):
                     out.append(t.slice.value)
-        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and is_env(n.func.value):
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and is_env(n.func.value, names, environ):
             if n.func.attr == 'setdefault' and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str) and env_guard.REQUEST_VAR.match(n.args[0].value):
                 out.append(n.args[0].value)
             if n.func.attr == 'update' and n.args and isinstance(n.args[0], ast.Dict):
@@ -43,37 +62,55 @@ def writes_in(node):
     return out
 
 
-def has_a_way_back(tree):
-    """A call to env_guard.restore inside tearDownModule, or any construct in the file that can undo a write (pop, clear, del, patch.dict, monkeypatch, an assignment by a variable key)."""
+def has_a_way_back(tree, names=('os',), environ=()):
+    """A call to env_guard.restore inside tearDownModule, or a construct in the file that undoes what the module writes.
+
+    8.0.2: any `os.environ.pop(...)` used to count, so twelve modules that wrote REQUEST_METHOD, PATH_INFO and CONTENT_LENGTH and popped HTTP_X_TOKEN, or RP_DATA_DIR, passed as having a
+    way back and left the three behind. A pop or a del with a constant key now counts for that key only: the variables the module writes must all be among the keys it removes. Constructs
+    that remove an unknown set (clear, an update by a variable, a key given by a variable, patch.dict, monkeypatch) are still taken as a way back, and the run of every module that
+    writes one (tests/test_v800_env_restored.py's census, in the commit that added this) found none of them leaking."""
     for n in tree.body:
         if isinstance(n, ast.FunctionDef) and n.name == 'tearDownModule':
             if any(isinstance(c, ast.Call) and ast.unparse(c.func) == 'env_guard.restore' for c in ast.walk(n)):
                 return True
+    removed, unknown = set(), False
     for n in ast.walk(tree):
-        if isinstance(n, ast.Delete) and any(isinstance(t, ast.Subscript) and is_env(t.value) for t in n.targets):
-            return True
+        if isinstance(n, ast.Delete):
+            for t in n.targets:
+                if isinstance(t, ast.Subscript) and is_env(t.value, names, environ):
+                    if isinstance(t.slice, ast.Constant):
+                        removed.add(t.slice.value)
+                    else:
+                        unknown = True
         if isinstance(n, ast.Assign):
             for t in n.targets:
-                if is_env(t) or (isinstance(t, ast.Subscript) and is_env(t.value) and not isinstance(t.slice, ast.Constant)):
-                    return True
+                if is_env(t, names, environ) or (isinstance(t, ast.Subscript) and is_env(t.value, names, environ) and not isinstance(t.slice, ast.Constant)):
+                    unknown = True
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
-            if is_env(n.func.value) and (n.func.attr in ('pop', 'clear') or (n.func.attr == 'update' and not (n.args and isinstance(n.args[0], ast.Dict)))):
-                return True
-            if n.func.attr == 'dict' and n.args and (is_env(n.args[0]) or (isinstance(n.args[0], ast.Constant) and n.args[0].value == 'os.environ')):
-                return True
+            if is_env(n.func.value, names, environ):
+                if n.func.attr == 'pop':
+                    if n.args and isinstance(n.args[0], ast.Constant):
+                        removed.add(n.args[0].value)
+                    else:
+                        unknown = True
+                elif n.func.attr == 'clear' or (n.func.attr == 'update' and not (n.args and isinstance(n.args[0], ast.Dict))):
+                    unknown = True
+            if n.func.attr == 'dict' and n.args and (is_env(n.args[0], names, environ) or (isinstance(n.args[0], ast.Constant) and n.args[0].value == 'os.environ')):
+                unknown = True
             if n.func.attr in ('setenv', 'delenv'):
-                return True
-    return False
+                unknown = True
+    return unknown or set(writes_in(tree, names, environ)) <= removed
 
 
 def scan(source):
     """(request variables written at module level, request variables written anywhere, whether there is a way back)."""
     tree = ast.parse(source)
+    names, environ = os_names(tree)
     at_import = []
     for stmt in tree.body:
         if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            at_import += writes_in(stmt)
-    return at_import, writes_in(tree), has_a_way_back(tree)
+            at_import += writes_in(stmt, names, environ)
+    return at_import, writes_in(tree, names, environ), has_a_way_back(tree, names, environ)
 
 
 def population():
@@ -82,6 +119,11 @@ def population():
 
 LEAKS_AT_IMPORT = "import os\nos.environ['REQUEST_METHOD'] = 'GET'\n\nclass T:\n    pass\n"
 LEAKS_IN_A_TEST = "import os\n\nclass T:\n    def test_x(self):\n        os.environ['PATH_INFO'] = '/x'\n"
+LEAKS_BY_AN_ALIAS = "class T:\n    def test_x(self):\n        import os as _os\n        _os.environ['QUERY_STRING'] = 'q=1'\n"
+LEAKS_BY_AN_ALIAS_AT_IMPORT = "import os as _os\n_os.environ.setdefault('REQUEST_METHOD', 'GET')\n"
+LEAKS_BY_AN_IMPORTED_ENVIRON = "from os import environ as E\n\nclass T:\n    def test_x(self):\n        E['PATH_INFO'] = '/x'\n"
+PARTIAL_POP = "import os\n\ndef f():\n    os.environ['REQUEST_METHOD'] = 'GET'\n    os.environ['PATH_INFO'] = '/x'\n    os.environ.pop('HTTP_X_TOKEN', None)\n"
+FULL_POP = "import os\n\ndef f():\n    os.environ['REQUEST_METHOD'] = 'GET'\n    os.environ['PATH_INFO'] = '/x'\n    os.environ.pop('REQUEST_METHOD', None)\n    del os.environ['PATH_INFO']\n"
 GUARDED = ("import os\n\ndef setUpModule():\n    import env_guard\n    env_guard.save(__name__)\n    os.environ['REQUEST_METHOD'] = 'GET'\n\n"
            "def tearDownModule():\n    import env_guard\n    env_guard.restore(__name__)\n")
 
@@ -92,7 +134,18 @@ class TestTheScan(unittest.TestCase):
         self.assertEqual(scan(LEAKS_AT_IMPORT), (['REQUEST_METHOD'], ['REQUEST_METHOD'], False), 'control: a module-level write is found')
         self.assertEqual(scan(LEAKS_IN_A_TEST), ([], ['PATH_INFO'], False), 'control: a write inside a test is found, and is not an import-time write')
         self.assertEqual(scan(GUARDED), ([], ['REQUEST_METHOD'], True), 'control: the hooks are a way back, and a write in setUpModule is not an import-time write')
-        self.assertEqual(scan("import os\nos.environ['RP_DATA_DIR'] = '/x'\n"), ([], [], False), 'control: a variable that is not a request variable is not counted')
+        self.assertEqual(scan("import os\nos.environ['RP_DATA_DIR'] = '/x'\n")[:2], ([], []), 'control: a variable that is not a request variable is not counted')
+
+    def test_a_pop_of_another_variable_is_not_a_way_back(self):
+        self.assertEqual(scan(PARTIAL_POP), ([], ['REQUEST_METHOD', 'PATH_INFO'], False), 'control: popping HTTP_X_TOKEN does not put REQUEST_METHOD and PATH_INFO back')
+        self.assertEqual(scan(FULL_POP), ([], ['REQUEST_METHOD', 'PATH_INFO'], True), 'control: a pop and a del of exactly what is written are a way back')
+        self.assertEqual(scan(PARTIAL_POP + "    os.environ.clear()\n")[2], True, 'control: a clear removes an unknown set and is taken as a way back')
+
+    def test_it_follows_the_other_names_of_os_and_environ(self):
+        self.assertEqual(scan(LEAKS_BY_AN_ALIAS), ([], ['QUERY_STRING'], False), 'control: a write through `import os as _os` inside a test is found (it was not, until 8.0.2)')
+        self.assertEqual(scan(LEAKS_BY_AN_ALIAS_AT_IMPORT), (['REQUEST_METHOD'], ['REQUEST_METHOD'], False), 'control: so is a write at import through an alias')
+        self.assertEqual(scan(LEAKS_BY_AN_IMPORTED_ENVIRON), ([], ['PATH_INFO'], False), 'control: and one through `from os import environ as E`')
+        self.assertEqual(scan("import os as _os\n_os.environ['RP_DATA_DIR'] = '/x'\n")[:2], ([], []), 'control: an alias does not make every variable a request variable')
 
     def test_the_population_is_the_whole_suite(self):
         pop = population()
@@ -101,6 +154,11 @@ class TestTheScan(unittest.TestCase):
         self.assertGreater(len(writers), 150, 'control: the modules that write a request variable were found (167 at 8.0.0)')
         guarded = [n for n, (_, w, _) in pop.items() if w and 'env_guard' in (_TESTS / n).read_text()]
         self.assertGreater(len(guarded), 90, 'control: the modules that were given the hooks were found (102 at 8.0.0)')
+        trees = {p.name: ast.parse(p.read_text(errors='replace')) for p in sorted(_TESTS.glob('test_*.py'))}
+        aliased = [n for n, t in trees.items() if os_names(t) != ({'os'}, set())]
+        self.assertGreater(len(aliased), 50, 'control: the modules that import os or environ under another name were found (61 at 8.0.2)')
+        only_by_alias = [n for n in aliased if len(writes_in(trees[n], *os_names(trees[n]))) > len(writes_in(trees[n]))]
+        self.assertGreater(len(only_by_alias), 4, 'control: the modules that write a request variable only under another name of os were found (five at 8.0.2, each now given the hooks)')
 
 
 class TestEveryTestModule(unittest.TestCase):

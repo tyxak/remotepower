@@ -333,6 +333,7 @@ class TestSigningInWithALongPassword(_Base):
 _PY_ENV = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'PYTHONPATH', 'TMPDIR')}
 _SAFE_WRITE = "def safe_write(path, data):\n    open(path, 'w').write(data)\n"
 _NO_BCRYPT = "import sys\nsys.modules['bcrypt'] = None\n"        # `import bcrypt` then raises ImportError, as on a host without it
+_ABSENT = object()
 
 
 def _heredoc(path, needle):
@@ -409,8 +410,23 @@ class TestTheOfflineTool(unittest.TestCase):
         end = src.index('def hash_type(')
         code = (_NO_BCRYPT if no_bcrypt else '') + 'import hashlib, secrets\n' + src[start:end]
         ns = {}
-        exec(compile(code, 'remotepower-passwd', 'exec'), ns)            # the tool's own hash_password and what it needs, nothing else of it
+        # _NO_BCRYPT sets sys.modules['bcrypt'] to None, and this runs in the test process: left that way, every module that imports bcrypt after this one fails
+        # ("import of bcrypt halted; None in sys.modules": test_session_gates_allow_logout did, in a shared run). It is put back as it was, or removed if it was not there.
+        had = sys.modules.get('bcrypt', _ABSENT)
+        try:
+            exec(compile(code, 'remotepower-passwd', 'exec'), ns)        # the tool's own hash_password and what it needs, nothing else of it
+        finally:
+            if had is _ABSENT:
+                sys.modules.pop('bcrypt', None)
+            else:
+                sys.modules['bcrypt'] = had
         return ns
+
+    def test_simulating_a_host_without_bcrypt_does_not_leave_it_blocked_for_the_rest_of_the_process(self):
+        before = sys.modules.get('bcrypt', _ABSENT)
+        ns = self.namespace(no_bcrypt=True)
+        self.assertFalse(ns['_BCRYPT'], 'control: the namespace really saw no bcrypt')
+        self.assertIs(sys.modules.get('bcrypt', _ABSENT), before, "sys.modules['bcrypt'] was left as the snippet set it")
 
     def test_the_tool_hashes_every_length_the_way_the_server_does_and_never_cuts_a_password(self):
         ns = self.namespace()

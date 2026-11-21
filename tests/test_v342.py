@@ -44,12 +44,16 @@ def setUpModule():
     'root' != 'admin' when it ran after this one (found in the 7.5.0 sweep). Whatever was a function when this module started is a
     function again when it ends."""
     import importlib
+    import env_guard      # the tests directory is on sys.path (above); REQUEST_METHOD is written by a test below and put back by tearDownModule
+    env_guard.save(__name__)
     api = importlib.import_module('api')
     _API_BEFORE.update({n: v for n, v in vars(api).items() if callable(v) and not n.startswith('__')})
 
 
 def tearDownModule():
     import importlib
+    import env_guard
+    env_guard.restore(__name__)
     api = importlib.import_module('api')
     for n, v in _API_BEFORE.items():
         if vars(api).get(n) is not v:

@@ -96,9 +96,22 @@ import os as _os              # noqa: E402
 import tempfile as _tf        # noqa: E402
 
 _os.environ["RP_DATA_DIR"] = _tf.mkdtemp()
-_os.environ.setdefault("REQUEST_METHOD", "GET")
-_os.environ.setdefault("PATH_INFO", "/")
-_os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def setUpModule():
+    # The request variables the handlers below read. They were set at import, where discovery runs them for every module before the first test and the last
+    # module imported decides what all of them see (tests/test_v800_env_restored.py); they are set here and put back by tearDownModule (tests/env_guard.py).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import env_guard
+    env_guard.save(__name__)
+    _os.environ.setdefault("REQUEST_METHOD", "GET")
+    _os.environ.setdefault("PATH_INFO", "/")
+    _os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+    env_guard.restore(__name__)
 _CGI = Path(__file__).parent.parent / "server" / "cgi-bin"
 _spec = _ilu.spec_from_file_location("api_syno", _CGI / "api.py")
 _api = _ilu.module_from_spec(_spec)
