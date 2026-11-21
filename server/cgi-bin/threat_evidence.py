@@ -470,11 +470,15 @@ _SAMPLE_METHODS = frozenset(
 _SAMPLE_PATH_RE = re.compile(r"[A-Za-z0-9._~/%+-]+")
 # A path segment of 24 or more letters, digits, hyphens and underscores that holds both a letter and a digit is read as a capability link (a reset or invite token,
 # a session id, a signed URL part) and is replaced by `~token~`: the request is shown to say what was asked for, and a link that opens something is not what it is for.
-_SAMPLE_TOKEN_SEGMENT_RE = re.compile(r"(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}")
+_SAMPLE_TOKEN_SEGMENT_RE = re.compile(
+    r"(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}"
+)
 
 
 def _mask_token_segments(path):
-    return "/".join("~token~" if _SAMPLE_TOKEN_SEGMENT_RE.fullmatch(seg) else seg for seg in path.split("/"))
+    return "/".join(
+        "~token~" if _SAMPLE_TOKEN_SEGMENT_RE.fullmatch(seg) else seg for seg in path.split("/")
+    )
 
 
 _SAMPLE_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,9}:/")

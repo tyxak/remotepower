@@ -276,7 +276,9 @@ def _addresses(values):
 # ── the choice ─────────────────────────────────────────────────────────────────
 
 
-def own_candidates(attackers, now, min_score, days, reported_counts=True, listable=None, reported_ok=None):
+def own_candidates(
+    attackers, now, min_score, days, reported_counts=True, listable=None, reported_ok=None
+):
     """Addresses RemotePower itself found, strongest first: reported to a service
     (it had enough evidence to say so in public) or scored `min_score` or more, and
     seen within `days`. `attackers` is the Threat Intel store's address record.
