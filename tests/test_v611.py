@@ -145,13 +145,15 @@ class TestAlertsTenantIsolationFix(unittest.TestCase):
         self.assertIn("_tenant", body)
         # diagnostics bundle must strip integration URLs (basic-auth userinfo).
         # v6.2.3: moved into the shared _redact_nonname_config_secrets helper.
-        i2 = self.SRC.index("def handle_diagnostics_bundle")
-        b2 = self.SRC[i2 : self.SRC.index("\ndef ", i2 + 10)]
+        # 8.0.2: the list of fields moved on, into _nonname_config_secret_sites, so the text of
+        # the helper holds none. It is read from that list here, and
+        # tests/test_v802_diagnostics_bundle_secrets.py downloads the real bundle.
+        b2 = py_function(self.SRC, "handle_diagnostics_bundle")
         self.assertIn("_redact_nonname_config_secrets", b2)
-        h = self.SRC[self.SRC.index("def _redact_nonname_config_secrets"):]
-        h = h[: h.index("\ndef ", 10)]
-        self.assertIn("integrations", h)
-        self.assertIn("_ig", h)
+        cfg = {'integrations': [{'type': 'unifi', 'url': 'https://u:p@gw.example/'}]}
+        sites = api._nonname_config_secret_sites(cfg)
+        self.assertTrue(any(c is cfg['integrations'][0] and k == 'url' and userinfo for c, k, _m, userinfo in sites),
+                        'the address of an integration is not on the list as one that can carry userinfo')
 
 
 class TestSsoGroupRolesSuperadminGate(unittest.TestCase):
