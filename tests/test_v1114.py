@@ -529,6 +529,26 @@ class TestHeartbeatClearsStaleFlag(unittest.TestCase):
         cfg = api.load(api.CONFIG_FILE)
         self.assertFalse(cfg.get("containers_stale_notified", {}).get(self.dev_id, False))
 
+    def test_a_heartbeat_clears_only_its_own_hosts_flag_and_nothing_else_in_the_settings(self):
+        """The reason handle_heartbeat is reviewed in test_tenant_instance_gate: it is authenticated by the host's own token and writes one key of the settings, the flag of that
+        host. Another host's flag, one of another tenant's, and a setting an administrator saved all stay as they are."""
+        cfg = api.load(api.CONFIG_FILE)
+        cfg["containers_stale_notified"] = {self.dev_id: True, "another-host": True, "a-host-of-another-tenant": True}
+        cfg["ip_allowlist"] = ["198.51.100.0/24"]
+        cfg["tenancy_enforced"] = True
+        api.save(api.CONFIG_FILE, cfg)
+        _set_request("POST", "/api/heartbeat", body={"device_id": self.dev_id, "token": "tok", "containers": [{"name": "x", "runtime": "docker"}]})
+        status, _ = _call(api.handle_heartbeat)
+        self.assertEqual(status, 200)
+        after = api.load(api.CONFIG_FILE)
+        self.assertEqual(after["containers_stale_notified"], {self.dev_id: False, "another-host": True, "a-host-of-another-tenant": True})
+        self.assertEqual((after["ip_allowlist"], after["tenancy_enforced"]), (["198.51.100.0/24"], True))
+        # the token is the host's own: another host's id with this host's token is refused and changes nothing
+        _set_request("POST", "/api/heartbeat", body={"device_id": "another-host", "token": "tok", "containers": [{"name": "x", "runtime": "docker"}]})
+        status, _ = _call(api.handle_heartbeat)
+        self.assertIn(status, (401, 403, 404))
+        self.assertTrue(api.load(api.CONFIG_FILE)["containers_stale_notified"]["another-host"])
+
 
 # ─── manual clear endpoint (DELETE /api/devices/{id}/containers) ─────────────
 

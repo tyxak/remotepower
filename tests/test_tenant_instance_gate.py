@@ -62,6 +62,9 @@ REVIEWED = {
     # Returns the stored entry; the write is a one-time import of the existing
     # value into config, and the handler is admin-gated for the read itself.
     'handle_dns_import_status': 'polls a one-shot import the caller started',
+    # The agent's endpoint, authenticated by the host's own token: there is no user and no tenant to cross. Its one write to the settings clears
+    # containers_stale_notified[<this host's id>], under the settings lock; tests/test_v1114.py drives it with two other hosts' flags and a saved setting.
+    'handle_heartbeat': "the host's own token; clears that host's containers_stale_notified flag only (tests/test_v1114.py holds it)",
 }
 
 
