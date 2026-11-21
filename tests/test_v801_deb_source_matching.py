@@ -859,8 +859,10 @@ class TestReadingTheAdvisoryRecords(unittest.TestCase):
         self.assertEqual([f['vuln_id'] for f in alone['findings']], [f['vuln_id'] for f in first['findings']])
         self.assertTrue(second['rollup']['total'])
 
-    def test_an_id_that_is_not_text_is_not_an_advisory(self):
-        """A list or a map for an id cannot be looked up, and ended the scan."""
+    def test_an_id_that_is_not_text_makes_the_scan_say_it_could_not_read_the_answer(self):
+        """A list or a map for an id cannot be looked up, and ended the scan with an exception (8.0.1: such a record was skipped). Since 5de0023d (the 8.0.2 review, finding F2) an advisory
+        with no usable name is an answer the scan could not read: it ends with an error and no findings, because a host that read as clean would announce its findings cleared.
+        tests/test_v802_osv_answer_without_names.py holds the rule at the layer that makes it; this holds it through a whole scan."""
         def answers(body):
             return [{'vulns': [{'id': ['a']}, {'id': {'a': 1}}, {'id': None}, {'id': ''}, {'id': 7}, {},
                                {'id': 'DEBIAN-CVE-2024-6387', 'modified': '2026-11-10T08:00:00Z'}]} for _q in body]
@@ -868,9 +870,9 @@ class TestReadingTheAdvisoryRecords(unittest.TestCase):
         with mock.patch.object(cve_scanner, '_osv_querybatch', answers), \
                 mock.patch.object(cve_scanner, '_osv_vuln_details', db.details):
             result = cve_scanner.scan_device(HOST, [{'name': 'openssh-server', 'version': '1:9.2p1-2+deb12u2',
-                                                     'source': 'openssh'}], 'Debian:12', self.dir, has_meta=True)
-        self.assertEqual([f['vuln_id'] for f in result['findings']], ['DEBIAN-CVE-2024-6387'])
-        self.assertNotIn('error', result)
+                                                     'source': 'openssh'}], 'Debian:12', self.dir, has_meta=True)      # returns: it does not raise
+        self.assertEqual(result['error'], 'OSV query failed: an OSV answer is not a list of advisories')
+        self.assertEqual(result['findings'], [], 'no finding is made of a batch that could not be read, and none is carried over as cleared')
 
     def test_two_scanners_do_not_write_through_one_temporary_file(self):
         seen = []
