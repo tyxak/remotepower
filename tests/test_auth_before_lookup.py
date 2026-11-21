@@ -81,15 +81,41 @@ def _status(fn, *args):
 
 
 class TestAuthBeforeLookup(unittest.TestCase):
+    STORES = ('USERS_FILE', 'TOKENS_FILE', 'DEVICES_FILE', 'AUDIT_LOG_FILE', 'CONFIG_FILE')
+
     @classmethod
     def setUpClass(cls):
         d = tempfile.mkdtemp(prefix='rp-authfirst-')
+        # what is moved is put back by tearDownClass: the module imports the one `api` of the process, and the next module read these stores from the directory this one made
+        # (test_tenant_password_reset_and_export: "There is no item named 'users.json' in the archive", after this module, in a shared process)
+        cls._saved_stores = {name: getattr(api, name) for name in cls.STORES if hasattr(api, name)}
+        cls._saved_data_dir = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = d
-        for name in ('USERS_FILE', 'TOKENS_FILE', 'DEVICES_FILE', 'AUDIT_LOG_FILE', 'CONFIG_FILE'):
+        for name in cls.STORES:
             if hasattr(api, name):
                 setattr(api, name, Path(d) / Path(getattr(api, name)).name)
         api.ensure_default_user()
         api.save(api.DEVICES_FILE, {'realdev1': {'name': 'real', 'tags': ['prod'], 'group': 'web'}})
+
+    @classmethod
+    def tearDownClass(cls):
+        for name, value in cls._saved_stores.items():
+            setattr(api, name, value)
+        if cls._saved_data_dir is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._saved_data_dir
+        api._LOAD_CACHE.clear()
+
+    def test_the_stores_that_were_moved_are_given_back_when_the_class_is_done(self):
+        self.assertNotEqual(api.USERS_FILE, self._saved_stores['USERS_FILE'], 'control: the class moved them')
+        self.assertIn('rp-authfirst-', str(api.USERS_FILE))
+        type(self).tearDownClass()
+        try:
+            for name, value in self._saved_stores.items():
+                self.assertEqual(getattr(api, name), value, name)
+        finally:
+            type(self).setUpClass.__func__(type(self))      # the other tests of the class run with the stores moved again
 
     def test_device_subresources_do_not_say_which_ids_exist(self):
         # The handler modules are bound to api's namespace, so go through api.
