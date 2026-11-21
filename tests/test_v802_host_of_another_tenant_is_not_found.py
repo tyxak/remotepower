@@ -61,6 +61,9 @@ class _Base(unittest.TestCase):
         a.current_username = lambda: 'aadmin'
         self.as_user('aadmin')
 
+    def tearDown(self):
+        self.api._RCTX.environ = None
+
     def as_user(self, user, role='admin'):
         self.api.verify_token = lambda tok: (user, role)
         self.api.current_username = lambda: user

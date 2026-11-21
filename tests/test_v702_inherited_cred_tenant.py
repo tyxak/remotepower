@@ -80,7 +80,7 @@ class TestTheHandler(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('require_auth', '_tenant_gate', '_scope_block_device')}
         api.require_auth = lambda *a, **k: 'admin@acme'
-        api._scope_block_device = lambda d: None      # device gate proven elsewhere
+        api._scope_block_device = lambda d, strict=False: None      # device gate proven elsewhere (the handler asks for strict=True since 8.0.2)
         # Both tenants tag a host "web" — the whole point.
         api.save(api.DEVICES_FILE, {
             'acme1': {'name': 'acme-web', 'tenant': 'acme', 'tags': ['web']},

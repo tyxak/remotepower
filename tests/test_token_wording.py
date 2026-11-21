@@ -34,6 +34,8 @@ EXEMPT = {
         'the arm of `uses > 1 ? ... : ...` that is shown for a token made for one host',
     ('server/html/static/js/app.js', "One-time token, expires in 24h."):
         'the arm of `uses > 1 ? ... : ...` that is shown for a token made for one host',
+    ('docs/sso.md', 'password or a one-time code first (a "step-up")'):
+        'the one-time code is the second factor of the step-up that guards the SCIM token, and not an enrolment token',
 }
 
 # (file, text) -> who changes it. These are still wrong today; the entry is removed in the commit that fixes the line.
