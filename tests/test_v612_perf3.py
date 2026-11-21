@@ -391,7 +391,13 @@ class TestEagerJsPayload(unittest.TestCase):
         # Accepting a host is 3,695: 3,496 in app-cve.js and 199 in app.js. app-cve.js is eager for the reason given at 7.4.6, and the buttons, the banner and the four actions of the
         # host's view are drawn from it, as is the badge of the host table in app.js; the dialog is in index.html, which this sum does not count. The translations are in i18n.js,
         # which is not eager. The budget is 2_813_000, 2,163 over what is measured.
-        self.assertLess(total, 2_813_000,
+        # 8.0.2 the list of accepted hosts in Settings → Ignored items: 2_816_500. The payload was 2_811_330 and is 2_814_007 now: 2,677 bytes more, 2,067 in app.js and 610 in app-cve.js.
+        # In app.js it is the renderer of the block (`_acceptedHostsHtml`, 1,518 with its guards for what is not ours: a row with no id is not drawn, a count and a time that are
+        # not numbers print as nothing or zero, and every typed value goes through the escaping) and the lines of `loadIgnoredItems` that read the list from the answer. In app-cve.js it
+        # is the action behind Stop accepting (the prefixed id, the question, the call, the toast and the redraw). Settings and the Ignored items pane are drawn from the eager core,
+        # before any loader could be asked for more, and app-cve.js is eager for the reason given at 7.4.6. The translations are in i18n.js, which is not eager.
+        # The budget is 2_816_500, 2,493 over what is measured.
+        self.assertLess(total, 2_816_500,
                         'the eager JS payload regressed past its budget')
 
 

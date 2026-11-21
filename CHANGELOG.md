@@ -601,7 +601,9 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   host's view and on its row. **Accept what is new** accepts those as well and keeps the first time, account and reason; **Stop accepting** takes the host's records back and leaves every
   finding that was ignored on its own. The lists of accepted risks do not show a host's records (it holds up to 300), the ceiling of 5,000 for an organisation's own records does not count
   them, and deleting the host removes them. The records of two hosts that share a finding sit side by side under its id: an organisation held one record under each id, so the second host's
-  would have taken the first's away. The platform operator or a tenant administrator, as for an ignore (`POST /api/devices/{id}/cve/accept` and `/unaccept`). See
+  would have taken the first's away. The platform operator or a tenant administrator, as for an ignore (`POST /api/devices/{id}/cve/accept` and `/unaccept`). **Settings → Ignored items →
+  Accepted hosts** lists them in one place, with when, by whom and why, the number of accepted findings and **Stop accepting** on each (the same route as the host's own view): `GET
+  /api/cve/ignore` carries `accepted_hosts`, the newest acceptance first and at most 500, and `accepted_hosts_total`; each caller reads the hosts it may see and the records it may see. See
   [docs/cve.md](docs/cve.md#accepting-a-host). Tests: `tests/test_v802_cve_host_accept.py` and `tests/test_v802_cve_host_accept_e2e.py`.
 
 ### Fixes found on the way

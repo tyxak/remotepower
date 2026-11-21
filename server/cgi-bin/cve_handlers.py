@@ -897,7 +897,7 @@ def handle_cve_ignore_delete(vuln_id):
 
 
 def handle_cve_ignore_list():
-    """GET /api/cve/ignore — list all active ignores."""
+    """GET /api/cve/ignore — list all active ignores, and (8.0.2) the hosts that are accepted."""
     A.require_auth()
     ignore_data = A.load(A.CVE_IGNORE_FILE)
     # v7.0.3 (SECURITY): the rows carry a device id in `scope`, so an
@@ -905,7 +905,8 @@ def handle_cve_ignore_list():
     items = [{'vuln_id': k, **record} for k, v in ignore_data.items()
              for record in visible_ignore_records(v)]
     items.sort(key=lambda x: -x.get('ts', 0))
-    A.respond(200, {'ignores': items})
+    hosts, total = accepted_hosts(ignore_data)
+    A.respond(200, {'ignores': items, 'accepted_hosts': hosts, 'accepted_hosts_total': total})
 
 
 # ── accepting a host (8.0.2) ─────────────────────────────────────────────────────────────────────────────────────
@@ -936,6 +937,38 @@ def _accepted_view(dev, ignore_data, dev_id):
     mine = _host_records(ignore_data, dev_id)
     first = min(mine, key=lambda r: _whole(r.get('ts')) or 0) if mine else None
     return dict(marker, by=str(first.get('actor') or '')[:64] if first else '', reason=str(first.get('reason') or '')[:256] if first else '')
+
+
+MAX_ACCEPTED_HOSTS_LISTED = 500    # rows of the list in Settings; the total is sent with it, so a longer list is said to be longer
+
+
+def accepted_hosts(ignore_data):
+    """([{device_id, name, at, last_at, n, by, reason}, ...], how many hosts there are): the hosts that are accepted and that the caller may see, the newest acceptance first.
+
+    A host is accepted when its record carries the marker (`_accepted_marker`); who accepted it and why come, as in the host's own view (`_accepted_view`), from the first of the host's
+    records the caller may see. They are found in one pass over the store: a fleet that accepts hosts holds up to 300 records for each, and reading the store once per host would not do.
+    The hosts are the ones `_scope_filter_devices` leaves, so a tenant administrator sees its own tenant's and a key limited to some groups sees those."""
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    first = {}
+    for value in ignore_data.values() if isinstance(ignore_data, dict) else ():
+        for r in A.checks_mod.cve_ignore_records(value):
+            if not A.checks_mod.is_host_accept(r) or not _ignore_entry_visible(r):
+                continue
+            scope = r.get('scope')
+            if isinstance(scope, str) and scope in devices:
+                held = first.get(scope)
+                if held is None or (_whole(r.get('ts')) or 0) < (_whole(held.get('ts')) or 0):
+                    first[scope] = r
+    rows = []
+    for dev_id, dev in devices.items():
+        marker = _accepted_marker(dev)
+        if not marker:
+            continue
+        r = first.get(dev_id)
+        rows.append(dict(marker, device_id=dev_id, name=str(dev.get('name') or dev_id)[:128],
+                         by=str(r.get('actor') or '')[:64] if r else '', reason=str(r.get('reason') or '')[:256] if r else ''))
+    rows.sort(key=lambda x: (-x['last_at'], x['name'].lower(), x['device_id']))
+    return rows[:MAX_ACCEPTED_HOSTS_LISTED], len(rows)
 
 
 def _host_records(ignore_data, dev_id, owner=False):

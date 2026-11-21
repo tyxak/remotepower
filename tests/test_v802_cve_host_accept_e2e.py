@@ -259,6 +259,86 @@ class TestAcceptingAHostInTheBrowser(unittest.TestCase):
         self.assertEqual(records, [], "the records are gone")
         self.assertNotIn("cve_accepted", read("devices.json")[HOST])
 
+    def open_ignored_items(self):
+        self.page.evaluate("() => showPage('settings')")
+        self.page.wait_for_selector("#settings-tab-btn-ignored", state="visible", timeout=30000)
+        self.page.click("#settings-tab-btn-ignored")
+        # drawn afresh and awaited: the page is the same one for every test, and the list of the test before is still on it until the answer of this one arrives
+        self.page.evaluate("async () => { await loadIgnoredItems(); }")
+        self.page.wait_for_function("() => document.getElementById('ignored-items-list').textContent.includes('Accepted hosts')", timeout=30000)
+
+    def accepted_block(self):
+        """The text of the Accepted hosts block of Settings → Ignored items: its heading and each row."""
+        return self.page.evaluate("""() => {
+          const h = [...document.querySelectorAll('#ignored-items-list h4')].find(e => e.textContent.trim().startsWith('Accepted hosts'));
+          if (!h) return null;
+          const block = h.closest('.mb-16');
+          return {heading: h.textContent.replace(/\\s+/g, ' ').trim(),
+                  rows: [...block.querySelectorAll('.isl-669')].map(e => e.innerText.replace(/\\s+/g, ' ').trim()),
+                  none: [...block.querySelectorAll('.isl-616')].map(e => e.textContent.trim()),
+                  buttons: [...block.querySelectorAll('[data-action="cveUnacceptFromList"]')].map(e => [e.textContent.trim(), e.getAttribute('data-arg')])};
+        }""")
+
+    def test_settings_lists_the_accepted_hosts_and_stop_accepting_takes_one_off_the_list(self):
+        self.open_ignored_items()
+        block = self.accepted_block()
+        self.assertEqual((block["heading"], block["rows"], block["none"]), ("Accepted hosts (0)", [], ["— none —"]), "nothing is accepted yet")
+        self.accept_through_the_api("the lab box, retired in March")
+        n = len(self.findings0[HOST]["findings"])
+        self.open_ignored_items()
+        block = self.accepted_block()
+        self.assertEqual(block["heading"], "Accepted hosts (1)")
+        (row,) = block["rows"]
+        self.assertTrue(row.startswith(NAME), row)
+        self.assertIn("Host accepted", row)
+        self.assertIn("by alice", row)
+        self.assertIn("Accepted findings: %d" % n, row)
+        self.assertIn("“the lab box, retired in March”", row)
+        self.assertEqual(block["buttons"], [["Stop accepting", "dev-" + HOST]], "one button, with the id of the host behind the prefix that keeps it text")
+        self.assertEqual(block["none"], [])
+        # the dictionary: the heading is in all six languages
+        self.page.evaluate("async () => { await _ensureI18n(); }")
+        english = self.page.evaluate("() => [...document.querySelectorAll('#ignored-items-list h4')].find(e => e.textContent.trim().startsWith('Accepted hosts')).firstChild.textContent.trim()")
+        self.assertEqual(english, "Accepted hosts")
+        bad = []
+        try:
+            for lang in LANGS:
+                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                self.page.wait_for_timeout(300)
+                now = self.page.evaluate("() => [...document.querySelectorAll('#ignored-items-list h4')].map(e => e.firstChild.textContent.trim()).filter(t => !['Needs Attention', 'Stale containers', 'Ignored CVEs', 'Cleared log lines'].includes(t))")
+                if english in now:
+                    bad.append(lang)
+        finally:
+            self.page.evaluate("() => RPi18n.setLang('en', false)")
+        self.assertEqual(bad, [], "the heading is not translated in these languages")
+        del self.requests[:]
+        self.page.click('#ignored-items-list [data-action="cveUnacceptFromList"]')
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=30000)
+        self.assertIn("Stop accepting this host? Its findings will count again.", self.text("#ui-prompt-message"))
+        self.page.click("#ui-prompt-confirm")
+        self.page.wait_for_function("() => document.getElementById('ignored-items-list').textContent.includes('Accepted hosts (0)')", timeout=30000)
+        block = self.accepted_block()
+        self.assertEqual((block["rows"], block["none"]), ([], ["— none —"]))
+        posts = [r for r in self.requests if r[0] == "POST"]
+        self.assertEqual([(r[1], r[2]) for r in posts], [("/devices/%s/cve/unaccept" % HOST, "{}")], "the host's own route, with nothing else")
+        records = [r for v in read("cve_ignore.json").values() for r in ([v] + (v.get("others") or [])) if isinstance(v, dict)]
+        self.assertEqual(records, [], "the records are gone")
+        self.assertNotIn("cve_accepted", read("devices.json")[HOST])
+        self.assertEqual(self.summary()["accepted_hosts"], 0, "and the page counts the findings again")
+
+    def test_declining_the_question_leaves_the_host_accepted(self):
+        self.accept_through_the_api()
+        self.open_ignored_items()
+        self.assertEqual(self.accepted_block()["heading"], "Accepted hosts (1)")
+        del self.requests[:]
+        self.page.click('#ignored-items-list [data-action="cveUnacceptFromList"]')
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=30000)
+        self.page.click('#ui-prompt-modal [data-action="_uiPromptCancel"]')
+        self.page.wait_for_function("() => !document.getElementById('ui-prompt-modal').classList.contains('active')", timeout=30000)
+        self.assertEqual([r for r in self.requests if r[0] == "POST"], [], "nothing was sent")
+        self.assertEqual(self.accepted_block()["heading"], "Accepted hosts (1)")
+        self.assertIn("cve_accepted", read("devices.json")[HOST])
+
     def test_a_viewer_who_tries_is_told_no_and_nothing_is_written(self):
         ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
         ctx.add_init_script(INIT % "")

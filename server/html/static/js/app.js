@@ -31942,6 +31942,31 @@ async function ignoreContainerDevice(deviceId, name) {
   }
 }
 
+// 8.0.2: the "Accepted hosts" block of Settings → Ignored items. Names, accounts and reasons were typed by people: escHtml, and the id escAttr.
+function _acceptedHostsHtml(hosts, total) {
+  const list = Array.isArray(hosts) ? hosts.filter(h => h && typeof h === 'object' && typeof h.device_id === 'string' && h.device_id) : [];
+  const count = Number.isFinite(total) && total >= 0 ? Math.floor(total) : list.length;
+  let html = `<div class="mb-16">
+    <h4 class="isl-668">Accepted hosts <span class="isl-74">(${escHtml(String(count))})</span></h4>`;
+  if (!list.length) {
+    html += '<div class="isl-616">— none —</div>';
+  } else {
+    html += list.map(h => {
+      const n = Number.isFinite(h.n) && h.n >= 0 ? Math.floor(h.n) : 0;
+      const meta = `<span>Host accepted</span> ${escHtml(Number.isFinite(h.at) ? _fmtAbsTs(h.at) : '')}`
+        + (typeof h.by === 'string' && h.by ? ` · <span>by</span> <span data-no-i18n>${escHtml(h.by)}</span>` : '')
+        + ` · <span>Accepted findings:</span> ${escHtml(String(n))}`
+        + (typeof h.reason === 'string' && h.reason ? ` · <span data-no-i18n>“${escHtml(h.reason)}”</span>` : '');
+      return `<div class="isl-669">
+        <div class="isl-618"><span data-no-i18n>${escHtml(typeof h.name === 'string' && h.name ? h.name : h.device_id)}</span><div class="meta-sm-nm">${meta}</div></div>
+        <button class="btn-secondary btn-xs" data-action="cveUnacceptFromList" data-arg="dev-${escAttr(h.device_id)}">Stop accepting</button>
+      </div>`;
+    }).join('');
+    if (count > list.length) html += '<div class="isl-616">Only the newest accepted hosts are listed.</div>';
+  }
+  return html + '</div>';
+}
+
 async function loadIgnoredItems() {
   const list = document.getElementById('ignored-items-list');
   if (!list) return;
@@ -31983,9 +32008,13 @@ async function loadIgnoredItems() {
   // management UI — you could accept a CVE as risk but never see or un-ignore
   // it. List them here with a Remove button (DELETE /api/cve/ignore/<id>).
   let cveIgnores = [];
+  let acceptedHosts = [], acceptedTotal = 0;
   try {
     const r = await api('GET', '/cve/ignore');
     cveIgnores = (r && r.ignores) || [];
+    // 8.0.2: the hosts accepted on the CVE page, which the ignores above leave out
+    acceptedHosts = (r && Array.isArray(r.accepted_hosts)) ? r.accepted_hosts : [];
+    acceptedTotal = (r && Number.isFinite(r.accepted_hosts_total)) ? r.accepted_hosts_total : acceptedHosts.length;
   } catch (_) { /* non-fatal */ }
   // resolve device-scope ids → names for readability
   let devName = {};
@@ -32011,6 +32040,7 @@ async function loadIgnoredItems() {
     }).join('');
   }
   html += '</div>';
+  html += _acceptedHostsHtml(acceptedHosts, acceptedTotal);
   // Cleared log lines (log_acks) — the "Clear this log line" / "Silence rule"
   // acknowledgements, surfaced here so every ignored thing lives in one place
   // (they are ALSO on Logs → Cleared lines). Restore = the line alerts again.

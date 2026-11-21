@@ -591,6 +591,17 @@ async function cveUnacceptHost(devId, devName) {
   await _cveAcceptPost(devId, devName, {}, 'unaccept');
 }
 
+// The same route from Settings → Ignored items → Accepted hosts. The id comes behind the prefix 'dev-': the dispatcher turns a number-like argument into a number.
+async function cveUnacceptFromList(arg) {
+  if (typeof arg !== 'string' || !/^dev-.{1,128}$/.test(arg)) return;
+  const devId = arg.slice(4);
+  if (!await uiConfirm('Stop accepting this host? Its findings will count again.')) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(devId)}/cve/unaccept`, {});
+  if (!r || r.error) { failToast(r); return; }
+  toast('Host no longer accepted', 'success');
+  loadIgnoredItems();
+}
+
 function ignoreCVE(vulnId, devId, devName) {
   _cveIgnoreCtx = {vulnId, devId, devName};
   document.getElementById('cve-ignore-vuln').textContent = vulnId;

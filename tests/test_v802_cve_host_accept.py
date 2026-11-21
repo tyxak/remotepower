@@ -366,6 +366,127 @@ class TestWhoMayAcceptAHost(_Cve):
         self.assertNotIn('tenant B\'s own reason', json.dumps(self.page('b')), 'the page row carries no text of a record, only the times and the number')
 
 
+
+class TestTheListOfAcceptedHosts(_Cve):
+    """Settings → Ignored items → Accepted hosts: GET /api/cve/ignore carries `accepted_hosts`, which the list of ignores cannot (a host holds up to 300 records of its own)."""
+
+    def listing(self, token='k'):
+        self.api._LOAD_CACHE.clear()
+        st, got = self.request('/api/cve/ignore', token=token)
+        self.assertEqual(st, 200, got)
+        return got
+
+    def set_times(self, times):
+        """The time each host was last accepted at, so that the order is not decided by the second the test ran in."""
+        devs = self.api.load(self.api.DEVICES_FILE)
+        for dev_id, at in times.items():
+            devs[dev_id]['cve_accepted'].update(at=at, last_at=at)
+        self.put('DEVICES_FILE', devs)
+
+    def test_the_list_names_each_accepted_host_with_when_by_whom_and_why_and_newest_first(self):
+        self.accept('web01', reason='a lab box')
+        self.accept('web02', reason='being retired')
+        self.set_times({'web01': self.now - 500, 'web02': self.now - 100})
+        got = self.listing()
+        self.assertEqual(got['accepted_hosts_total'], 2)
+        rows = got['accepted_hosts']
+        self.assertEqual([r['device_id'] for r in rows], ['web02', 'web01'], 'the newest acceptance first, and db01 is not accepted so it is not there')
+        by_id = {r['device_id']: r for r in rows}
+        self.assertEqual((by_id['web01']['name'], by_id['web01']['by'], by_id['web01']['reason']), ('WEB-1', 'admin', 'a lab box'))
+        self.assertEqual((by_id['web02']['name'], by_id['web02']['by'], by_id['web02']['reason']), ('WEB-2', 'admin', 'being retired'))
+        self.assertEqual(by_id['web01']['n'], 3, 'the three findings of web01')
+        self.assertEqual(by_id['web02']['n'], 2)
+        self.assertEqual((by_id['web01']['at'], by_id['web01']['last_at']), (self.now - 500, self.now - 500))
+        self.assertEqual(set(by_id['web01']), {'device_id', 'name', 'at', 'last_at', 'n', 'by', 'reason'}, 'nothing else of the host or of a record is sent')
+
+    def test_it_is_what_the_hosts_own_view_says_and_the_ignores_still_leave_the_records_out(self):
+        self.accept('web01', reason='a lab box')
+        got = self.listing()
+        (row,) = got['accepted_hosts']
+        seen = self.view('web01')['accepted']
+        self.assertEqual({k: row[k] for k in ('at', 'last_at', 'n', 'by', 'reason')}, {k: seen[k] for k in ('at', 'last_at', 'n', 'by', 'reason')}, 'the list and the host\'s view say the same')
+        self.assertEqual(got['ignores'], [], 'the records of an accepted host are still not among the ignores: a host holds up to 300')
+
+    def test_a_host_that_is_taken_back_leaves_the_list_and_a_host_with_a_marker_and_no_record_is_listed_plain(self):
+        self.accept('web01')
+        self.accept('web02')
+        self.assertEqual(self.unaccept('web01')[0], 200)
+        self.assertEqual([r['device_id'] for r in self.listing()['accepted_hosts']], ['web02'])
+        devs = self.api.load(self.api.DEVICES_FILE)
+        devs['db01']['cve_accepted'] = {'at': self.now - 50, 'last_at': self.now - 50, 'n': 1}      # a marker whose records are gone
+        devs['web01']['cve_accepted'] = {'at': 'x', 'last_at': 'y', 'n': 'z'}                         # a marker that is not one
+        self.put('DEVICES_FILE', devs)
+        rows = {r['device_id']: r for r in self.listing()['accepted_hosts']}
+        self.assertEqual(set(rows), {'web02', 'db01'}, 'a marker whose time is not a whole number is no marker')
+        self.assertEqual((rows['db01']['by'], rows['db01']['reason'], rows['db01']['name']), ('', '', 'DB-1'))
+
+    def test_who_and_why_come_from_the_first_record_and_not_a_later_one(self):
+        self.accept('web01', reason='a lab box')
+        store = self.store()
+        later = {'scope': 'web01', 'reason': 'a later reason', 'actor': 'someone-else', 'ts': self.now + 3600, 'host_accept': self.now + 3600}
+        store['CVE-2099-0001'] = later
+        self.put('CVE_IGNORE_FILE', store)
+        (row,) = self.listing()['accepted_hosts']
+        self.assertEqual((row['by'], row['reason']), ('admin', 'a lab box'), 'the first acceptance, as the host\'s own view says')
+
+    def test_each_organisation_reads_its_own_hosts_and_its_own_records(self):
+        self.tenancy()
+        self.assertEqual(self.accept('web01', token='k', reason='the operator\'s reason')[0], 200)
+        self.assertEqual(self.accept('web02', token='k', reason='the operator\'s older reason on the tenant\'s host')[0], 200)
+        time.sleep(1.1)       # the tenant's records are written after the operator's, so the operator's are the first of that host
+        self.assertEqual(self.accept('web02', token='b', reason='tenant B\'s reason')[0], 200)
+        mine = self.listing('b')
+        self.assertEqual([r['device_id'] for r in mine['accepted_hosts']], ['web02'], 'a tenant administrator is not told which other hosts are accepted, or that they exist')
+        row = mine['accepted_hosts'][0]
+        seen = self.view('web02', token='b')['accepted']
+        self.assertEqual((row['by'], row['reason']), (seen['by'], seen['reason']), 'who and why are what the host\'s own view shows the same caller')
+        self.assertEqual((row['by'], row['reason']), ('admin', 'the operator\'s older reason on the tenant\'s host'),
+                         'the first record of the host is the operator\'s, and a tenant is shown the records the operator wrote for one of its hosts')
+        self.assertNotIn('the operator\'s reason', json.dumps(mine), 'but not the reason the operator gave for a host of its own')
+        self.assertNotIn('WEB-1', json.dumps(mine))
+        every = self.listing('k')
+        self.assertEqual({r['device_id'] for r in every['accepted_hosts']}, {'web01', 'web02'}, 'the platform operator sees every tenant\'s hosts')
+        self.assertEqual(every['accepted_hosts_total'], 2)
+
+    def test_a_viewer_reads_the_list_and_cannot_change_it_and_nobody_without_a_token_reads_it(self):
+        self.accept('web01')
+        st, got = self.request('/api/cve/ignore', token='v')
+        self.assertEqual((st, [r['device_id'] for r in got['accepted_hosts']]), (200, ['web01']))
+        self.assertEqual(self.unaccept('web01', token='v')[0], 403)
+        self.assertEqual(self.request('/api/cve/ignore', token=None)[0], 401)
+
+    def test_the_list_is_cut_where_it_says_and_says_how_many_there_are(self):
+        devs = self.api.load(self.api.DEVICES_FILE)
+        cap = 500
+        for i in range(cap + 3):
+            devs['bulk%03d' % i] = {'name': 'B%03d' % i, 'last_seen': self.now, 'cve_accepted': {'at': self.now - 10_000 + i, 'last_at': self.now - 10_000 + i, 'n': 1}}
+        self.put('DEVICES_FILE', devs)
+        got = self.listing()
+        self.assertEqual((len(got['accepted_hosts']), got['accepted_hosts_total']), (cap, cap + 3))
+        self.assertEqual(got['accepted_hosts'][0]['device_id'], 'bulk%03d' % (cap + 2), 'the newest first')
+        self.assertNotIn('bulk000', {r['device_id'] for r in got['accepted_hosts']}, 'what is cut is the oldest')
+
+    def test_the_list_is_made_in_one_pass_over_the_records(self):
+        """A fleet that accepts hosts holds up to 300 records for each of them. Reading them once for every host in the list would be hosts times records."""
+        self.accept('web01')
+        self.accept('web02')
+        calls = []
+        mod = self.api.cve_handlers_mod
+        real = mod._host_records
+        mod._host_records = lambda *a, **k: calls.append(a) or real(*a, **k)
+        try:
+            self.assertEqual(len(self.listing()['accepted_hosts']), 2)
+        finally:
+            mod._host_records = real
+        self.assertEqual(calls, [], 'the list does not ask for the records of each host in turn')
+        # control: the host's own view does ask, so the patch is on the function that the handlers call
+        mod._host_records = lambda *a, **k: calls.append(a) or real(*a, **k)
+        try:
+            self.view('web01')
+        finally:
+            mod._host_records = real
+        self.assertTrue(calls, 'control: the patched helper is the one a handler reaches')
+
 class TestDeletingTheHost(_Cve):
 
     def test_deleting_a_host_removes_the_records_its_acceptance_wrote_and_nothing_else(self):
@@ -539,6 +660,90 @@ class TestTheViewIsSafe(unittest.TestCase):
         self.assertEqual([('cveAcceptHost' in h, 'cveAcceptNew' in h, 'cveUnacceptHost' in h) for h in out], [(True, False, False), (False, True, True), (False, True, True)],
                          'a value that is a map or any truthy thing is an accepted host, nothing is not')
         self.assertIn('data-arg="h1" data-arg2="host one"', out[0])
+
+
+class TestTheListInSettingsIsSafeAndTheButtonSendsOneHost(unittest.TestCase):
+    """The block "Accepted hosts" of Settings → Ignored items: what the server sent (names and reasons that people typed, ids that came from agents and cloud accounts) is text and never
+    markup, and Stop accepting sends the one route of the host and nothing else. The real functions, run with the app's own escaping."""
+
+    JS = _TESTS.parent / 'server' / 'html' / 'static' / 'js'
+
+    def run_js(self, body):
+        import re
+        import srcpin
+        app = (self.JS / 'app.js').read_text()
+        page = (self.JS / 'app-cve.js').read_text()
+        script = '\n'.join([re.search(r'^function escHtml\(s\) \{.*\}$', app, re.M).group(0), re.search(r'^function escAttr\(s\) \{.*\}$', app, re.M).group(0),
+                            "const _fmtAbsTs = ts => '@' + Number(ts);", srcpin.js_function(app, '_acceptedHostsHtml'), 'async ' + srcpin.js_function(page, 'cveUnacceptFromList'),         # srcpin starts at `function`: the async before it is put back
+                            '(async () => {', body, '})();'])
+        r = subprocess.run([shutil.which('node'), '-e', script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr[-600:])
+        return json.loads(r.stdout)
+
+    def test_what_people_and_agents_wrote_is_text_and_never_markup(self):
+        hostile = '"><img src=x onerror=alert(1)><script>x</script>'
+        out = self.run_js("const h = %s; const html = _acceptedHostsHtml([{device_id: h, name: h, by: h, reason: h, at: 5, n: 3}], 1); console.log(JSON.stringify(html));" % json.dumps(hostile))
+        for raw in ('<img', '<script', 'onerror=alert(1)>'):
+            self.assertNotIn(raw, out, raw)
+        self.assertIn('&lt;img', out, 'shown as the text it is')
+        self.assertEqual(out.count('data-arg="dev-'), 1)
+
+    def test_it_says_what_the_server_sent_and_what_is_not_ours_is_a_zero_or_nothing(self):
+        out = self.run_js("""console.log(JSON.stringify({
+          one: _acceptedHostsHtml([{device_id: 'web01', name: 'WEB-1', by: 'alice', reason: 'a lab box', at: 5, n: 3}], 1),
+          none: _acceptedHostsHtml([], 0), junk: _acceptedHostsHtml('x', 'y'), nothing: _acceptedHostsHtml(null, undefined),
+          odd: _acceptedHostsHtml([null, 7, 'x', {}, {device_id: ''}, {device_id: 5}, {device_id: 'h9', name: 7, by: 5, reason: {}, at: 'x', n: '<b>9</b>'}, {device_id: 'h8', n: -4}, {device_id: 'h7', n: 1e999}], 3),
+          cut: _acceptedHostsHtml([{device_id: 'a1', name: 'A'}], 2000)}));""")
+        self.assertIn('Accepted hosts <span class="isl-74">(1)</span>', out['one'])
+        self.assertIn('<span data-no-i18n>WEB-1</span>', out['one'])
+        self.assertIn('<span>Host accepted</span> @5', out['one'])
+        self.assertIn('<span>by</span> <span data-no-i18n>alice</span>', out['one'])
+        self.assertIn('<span>Accepted findings:</span> 3', out['one'])
+        self.assertIn('“a lab box”', out['one'])
+        self.assertIn('data-action="cveUnacceptFromList" data-arg="dev-web01">Stop accepting</button>', out['one'], 'the id goes behind a prefix: a number-like id would be turned into a number')
+        self.assertIn('— none —', out['none'])
+        self.assertIn('(0)', out['none'])
+        for key in ('junk', 'nothing'):
+            self.assertIn('— none —', out[key], key)
+        self.assertEqual(out['odd'].count('cveUnacceptFromList'), 3, 'only the three rows that carry an id that is text are drawn')
+        self.assertNotIn('<b>', out['odd'])
+        self.assertIn('(3)', out['odd'], 'the count is the one the server sent')
+        self.assertIn('Only the newest accepted hosts are listed.', out['cut'], 'a list that is cut says so')
+        self.assertNotIn('Only the newest', out['one'])
+
+    def test_stop_accepting_sends_the_one_route_of_the_host_after_asking_and_says_so(self):
+        out = self.run_js("""
+          let calls = [], toasts = [], reloads = 0, fails = [], asked = [], yes = true, answer = {ok: true};
+          globalThis.uiConfirm = async m => { asked.push(m); return yes; };
+          globalThis.api = async (m, p, b) => { calls.push([m, p, JSON.stringify(b)]); return answer; };
+          globalThis.toast = (t, k) => toasts.push([t, k]);
+          globalThis.failToast = r => fails.push(r);
+          globalThis.loadIgnoredItems = () => { reloads++; };
+          await cveUnacceptFromList('dev-web01');
+          const good = {calls: calls.slice(), toasts: toasts.slice(), reloads, asked: asked.slice()};
+          calls = []; toasts = []; reloads = 0;
+          for (const a of [5, 0, 'web01', 'dev-', 'dev', '', 'DEV-web01', undefined, null, {}, ['dev-web01'], 'dev-' + 'x'.repeat(200)]) await cveUnacceptFromList(a);
+          const refused = {calls: calls.length, reloads};
+          yes = false; await cveUnacceptFromList('dev-web02');
+          const declined = {calls: calls.length, reloads};
+          yes = true; answer = {error: 'nope'}; await cveUnacceptFromList('dev-web03');
+          console.log(JSON.stringify({good, refused, declined, failed: [fails.length, reloads, toasts.length]}));""")
+        self.assertEqual(out['good']['calls'], [['POST', '/devices/web01/cve/unaccept', '{}']], 'the host\'s own route, with nothing else in it')
+        self.assertEqual(out['good']['toasts'], [['Host no longer accepted', 'success']])
+        self.assertEqual(out['good']['reloads'], 1, 'the list is drawn again from the server')
+        self.assertEqual(out['good']['asked'], ['Stop accepting this host? Its findings will count again.'])
+        self.assertEqual(out['refused'], {'calls': 0, 'reloads': 0}, 'an argument that is not a prefixed id sends nothing')
+        self.assertEqual(out['declined'], {'calls': 0, 'reloads': 0}, 'a no to the question sends nothing')
+        self.assertEqual(out['failed'], [1, 0, 0], 'a refusal is said and the list is left as it is')
+
+    def test_the_id_is_made_safe_for_a_path(self):
+        out = self.run_js("""
+          let calls = [];
+          globalThis.uiConfirm = async () => true; globalThis.api = async (m, p) => { calls.push(p); return {ok: true}; };
+          globalThis.toast = () => {}; globalThis.failToast = () => {}; globalThis.loadIgnoredItems = () => {};
+          await cveUnacceptFromList('dev-a/b?c#d e');
+          console.log(JSON.stringify(calls));""")
+        self.assertEqual(out, ['/devices/a%2Fb%3Fc%23d%20e/cve/unaccept'], 'one path segment, whatever the id holds')
 
 
 if __name__ == '__main__':

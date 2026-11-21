@@ -85,10 +85,12 @@ and a line under it says how many hosts are accepted and how many of their findi
   findings count again. A finding you ignored on its own stays ignored.
 - The host's view says since when, by whom and why. As with an ignore, each organisation sees its own records, and the ones the platform operator wrote for one of its hosts.
 - Two hosts that share a finding are both accepted. Accepting one never takes the other's acceptance away.
-- **Settings → Ignored items → Ignored CVEs** does not list the records of an accepted host (a host holds up to 300), and the limit of 5,000 ignores for an organisation does not count
+- **Settings → Ignored items → Accepted hosts** lists the accepted hosts in one place: the host, when it was accepted, by whom, the number of accepted findings and the reason, with
+  **Stop accepting** on each (after a question, and the findings count again at once). Each organisation sees the hosts it may see; the list holds the newest 500 and says so when there
+  are more. **Ignored CVEs** in the same place does not list the records of an accepted host (a host holds up to 300), and the limit of 5,000 ignores for an organisation does not count
   them. Deleting a host removes them.
 - The platform operator and a tenant administrator can accept the hosts they can see, as they can ignore a finding. The API is `POST /api/devices/{id}/cve/accept`, with an optional
-  `reason`, and `POST /api/devices/{id}/cve/unaccept`.
+  `reason`, and `POST /api/devices/{id}/cve/unaccept`. `GET /api/cve/ignore` lists the accepted hosts under `accepted_hosts` (with `accepted_hosts_total`), beside the ignores.
 
 ## Which hosts are scanned
 
