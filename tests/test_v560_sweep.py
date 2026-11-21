@@ -50,9 +50,10 @@ class TestMuteSetMemoized(unittest.TestCase):
 class TestSiteHealthIsOwnInfra(unittest.TestCase):
     def test_nav_counts_carries_site_health(self):
         # v6.1.2: widened — the conditional-GET + _load_ro work pushed
-        # out['site_health'] to ~6634 from the top of the handler.
-        seg = _API[_API.index('def handle_nav_counts'):
-                   _API.index('def handle_nav_counts') + 9000]
+        # out['site_health'] to ~6634 from the top of the handler. 8.0.2: the
+        # news mark moved it past 9,000 and the window failed; the whole
+        # handler is read now, whatever its length.
+        seg = _py_function(_API, 'handle_nav_counts')
         self.assertIn("out['site_health']", seg)
         self.assertIn('disk_watchdog_pct', seg)   # own-infra disk headroom, not fleet
         self.assertIn('statvfs', seg)

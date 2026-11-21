@@ -117,6 +117,7 @@ ALLOWED = {
     ('app.js', '_fmtAbsTs(_n)'): (1, 'funnel', 'timeAgo, with the absolute setting'),
     ('app.js', '_fmtAbsTs(a.ts)'): (2, 'chart', 'the title of a chart annotation; and when an alert mute was made (rule)'),
     ('app.js', '_fmtAbsTs(c.ts)'): (1, 'rule', 'when a CVE ignore was made'),
+    ('app.js', '_fmtAbsTs(h.at)'): (1, 'rule', 'when a host was accepted, in the list of accepted hosts in Settings: a record like the ignored CVEs above it'),
     ('app.js', '_fmtAbsTs(data.started_at)'): (1, 'record', 'when a legal hold began'),
     ('app.js', '_fmtAbsTs(e.ts || 0)'): (1, 'log', 'the sudo log, by user'),
     ('app.js', '_fmtAbsTs(e.ts)'): (6, 'log', 'the webhook log, the dead letters, the schedule history, the maintenance suppressions, the audit trail; and an ignore (rule)'),

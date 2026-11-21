@@ -54,6 +54,7 @@ except ImportError:                     # pragma: no cover
 
 CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(CGI))
+import sanitize  # noqa: E402
 
 # _fresh_api() mutates RP_STORAGE_BACKEND / RP_DATA_DIR; capture the originals and
 # restore them at module teardown so this file can't leak a 'sqlite' backend into
@@ -171,14 +172,23 @@ class TestSanitizeStrProperties(unittest.TestCase):
     @given(st.text(max_size=80))
     def test_matches_its_documented_contract(self, s):
         """_sanitize_str's contract is "Truncate and strip" — length + surrounding
-        whitespace only (charset filtering is _sanitize_hostname/_ip/_mac's job).
-        Pin exactly that: the result equals str(s).strip()[:cap].
+        whitespace, and since 8.0.2 (the review's UI-06) the characters that reorder
+        or hide text (`sanitize.strip_hidden`); charset filtering is
+        _sanitize_hostname/_ip/_mac's job. Pin exactly that: the result equals
+        strip_hidden(str(s)).strip()[:cap]. The model had no hidden characters in it
+        and failed on the first run that happened to draw U+2060, in a shared process.
 
         (Hypothesis surfaced that control chars — NUL/ESC — DO flow through this
         function; that's by contract, not a bug, but a note-worthy hardening
         candidate for anything that reaches a terminal/log unescaped.)"""
         cap = 40
-        self.assertEqual(_API._sanitize_str(s, cap), str(s).strip()[:cap])
+        self.assertEqual(_API._sanitize_str(s, cap), sanitize.strip_hidden(str(s)).strip()[:cap])
+
+    def test_the_hidden_characters_are_always_in_the_model_not_only_when_hypothesis_draws_them(self):
+        for s in ('\u2060', 'a\u202eb', '\u200b ', ' \ufeffx', '\u2028y', '\u200d', 'a\u200cb', '\ufe0f'):
+            self.assertEqual(_API._sanitize_str(s, 40), sanitize.strip_hidden(s).strip()[:40], repr(s))
+        self.assertEqual(_API._sanitize_str('\u2060', 40), '', 'a word joiner alone is nothing')
+        self.assertEqual(_API._sanitize_str('a\u200db', 40), 'a\u200db', 'the joiners that spell Persian, Hindi and emoji stay')
 
 
 class TestStorageRoundTripAndBackendAgreement(unittest.TestCase):
