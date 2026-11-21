@@ -2290,10 +2290,11 @@ if _AVAILABLE:
         _v0 = field_validator('reason', mode='before')(_coerce_str_loose)
 
     class NewsWatchClearRequest(BaseModel):
-        """8.0.2: which items of the security news watch lose their red !. Both fields are Any: the handler keeps the ids that are text and takes `all` only when it is true."""
+        """8.0.2: which items of the security news watch lose their red !, or with `undo` get it back. All three fields are Any: the handler keeps the ids that are text and takes `all` and `undo` only when they are true."""
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         ids: Any = None
         all: Any = None
+        undo: Any = None
 
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

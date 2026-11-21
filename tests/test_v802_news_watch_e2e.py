@@ -327,7 +327,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
             page.click(TAB)
             page.wait_for_function("() => document.querySelectorAll('#news-watch-items > div').length > 0", timeout=30000)
             page.click('#news-watch-running [data-action="newsWatchClear"]')
-            page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+            page.wait_for_function("() => document.getElementById('news-watch-running').textContent.includes('Bring back all')", timeout=30000)
             self.poll_the_sidebar(page)
             self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', page), [False])
             on_the_rail()
@@ -384,7 +384,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertFalse(rows[1].startswith("!"), rows[1])
         self.assertRegex(rows[1], r"! cleared \S+", "it says it was cleared, and when")
         self.assertIn("Running on your hosts: php Hosts %d" % self.hosts_running("php"), rows[1], "what runs is still shown")
-        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all !")
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all ! · ! cleared 1 Bring back all !", "the line counts what is left to clear and what can be brought back")
         (post,) = self.clear_posts()
         body = json.loads(post[2])
         self.assertEqual(list(body), ["ids"])
@@ -393,7 +393,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertEqual(len(cleared), 1)
         self.assertTrue(cleared[0].startswith("PHP fixes critical flaws"), cleared)
 
-    def test_clear_all_takes_every_bang_and_the_line_away_and_it_holds_in_another_browser_and_after_a_reload(self):
+    def test_clear_all_takes_every_bang_away_and_it_holds_in_another_browser_and_after_a_reload(self):
         self.enable_the_watch()
         ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
         ctx.add_init_script(INIT % "")
@@ -404,8 +404,9 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
             self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [True], "control: a browser that has shown nothing has the mark")
             self.open_tab()
             self.page.click('#news-watch-running [data-action="newsWatchClear"]')
-            self.page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+            self.page.wait_for_function("() => document.getElementById('news-watch-running').textContent.includes('Bring back all')", timeout=30000)
             self.assertEqual(self.clear_buttons(), 0)
+            self.assertEqual(self.summary(), "! cleared 2 Bring back all !", "no ! is left to clear: the line is the way back")
             rows = self.items()
             self.assertEqual([r.startswith("!") for r in rows], [False] * 6, "no row shows a !")
             self.assertEqual(sum("! cleared" in r for r in rows), 2, "the two items that showed a ! say they were cleared")
@@ -425,7 +426,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
     def test_a_new_item_shows_its_own_bang_after_the_others_were_cleared(self):
         self.open_tab()
         self.page.click('#news-watch-running [data-action="newsWatchClear"]')
-        self.page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+        self.page.wait_for_function("() => document.getElementById('news-watch-running').textContent.includes('Bring back all')", timeout=30000)
         doc = read("news_watch.json")
         fresh = dict(doc["items"][0], id="feedfeedfeedfeed", title="nginx fixes a third flaw", seen_at=int(time.time()))
         fresh.pop("cleared_at", None)
@@ -436,7 +437,60 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertTrue(rows[0].startswith("! nginx fixes a third flaw"), rows[0])
         self.assertEqual(self.clear_buttons(), 1)
         self.assertIn("! cleared", rows[1])
-        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all !")
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all ! · ! cleared 2 Bring back all !")
+
+    def test_a_cleared_item_has_a_button_that_brings_its_bang_back(self):
+        self.open_tab()
+        self.page.locator("#news-watch-items > div").nth(1).locator('[data-action="newsWatchClear"]').click()
+        self.page.wait_for_function("() => document.querySelectorAll('#news-watch-items [data-action=\"newsWatchRestore\"]').length === 1", timeout=30000)
+        rows = self.items()
+        self.assertFalse(rows[1].startswith("!"), rows[1])
+        self.assertRegex(rows[1], r"! cleared \S+")
+        self.assertEqual(self.page.eval_on_selector_all('#news-watch-items [data-action="newsWatchRestore"]', "els => els.map(e => e.textContent.trim())"), ["Bring back !"],
+                         "one button, on the cleared item and on no other")
+        self.page.locator("#news-watch-items > div").nth(1).locator('[data-action="newsWatchRestore"]').click()
+        self.page.wait_for_function("() => document.querySelectorAll('#news-watch-items [data-action=\"newsWatchClear\"]').length === 2", timeout=30000)
+        rows = self.items()
+        self.assertEqual(len(rows), 6, "the item stayed listed")
+        self.assertTrue(rows[1].startswith("! PHP fixes critical flaws"), "the ! is back: " + rows[1])
+        self.assertNotIn("! cleared", rows[1])
+        self.assertEqual(self.clear_buttons(), 2)
+        self.assertEqual(self.page.eval_on_selector_all('#news-watch-items [data-action="newsWatchRestore"]', "els => els.length"), 0, "nothing is cleared, so nothing can be brought back")
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 2 Clear all !", "the line is as it was before the clear")
+        posts = self.clear_posts()
+        self.assertEqual([json.loads(p[2]) for p in posts], [{"ids": [self.store0["items"][1]["id"]]}, {"ids": [self.store0["items"][1]["id"]], "undo": True}],
+                         "the clear, then the undo of the same item: the id went through the prefix and came out as it was")
+        self.assertEqual([i for i in read("news_watch.json")["items"] if i.get("cleared_at")], [], "nothing is left cleared in the store")
+
+    def test_bring_back_all_undoes_clear_all_and_the_mark_comes_back_in_a_browser_that_had_not_shown_it(self):
+        self.enable_the_watch()
+        ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        ctx.add_init_script(INIT % "")
+        other = ctx.new_page()
+        try:
+            _login(other)
+            self.poll_the_sidebar(other)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [True], "control: a browser that has shown nothing has the mark")
+            self.open_tab()
+            self.page.click('#news-watch-running [data-action="newsWatchClear"]')
+            self.page.wait_for_function("() => document.getElementById('news-watch-running').textContent.includes('Bring back all')", timeout=30000)
+            self.poll_the_sidebar(other)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [False], "the clear took the mark away in the other browser")
+            self.page.click('#news-watch-running [data-action="newsWatchRestore"]')
+            self.page.wait_for_function("() => document.querySelectorAll('#news-watch-items [data-action=\"newsWatchClear\"]').length === 2", timeout=30000)
+            self.assertEqual(self.summary(), "! Items about software running on your hosts: 2 Clear all !")
+            self.assertEqual([json.loads(p[2]) for p in self.clear_posts()], [{"all": True}, {"all": True, "undo": True}])
+            self.poll_the_sidebar(other)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [True], "the mark is back in the browser that had not shown the items: the undo is the server's too")
+            self.assertTrue(other.evaluate("() => typeof window._newsRunningAt === 'number'"))
+        finally:
+            ctx.close()
+        self.page.reload()
+        self.page.wait_for_selector("#app", state="visible", timeout=90000)
+        self.page.wait_for_timeout(2500)
+        self.open_tab()
+        self.assertEqual(self.clear_buttons(), 2, "after a reload")
+        self.assertEqual(sum("! cleared" in r for r in self.items()), 0)
 
     def test_the_words_of_the_clear_are_translated_in_all_six_languages(self):
         self.open_tab()
@@ -447,9 +501,11 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
           button: document.querySelector('#news-watch-items [data-action="newsWatchClear"]').textContent.trim(),
           all: document.querySelector('#news-watch-running [data-action="newsWatchClear"]').textContent.trim(),
           cleared: [...document.querySelectorAll('#news-watch-items .hint > .hint')].map(e => e.textContent.trim()).filter(t => t.includes('!'))[0],
+          back: document.querySelector('#news-watch-items [data-action="newsWatchRestore"]').textContent.trim(),
+          backall: document.querySelector('#news-watch-running [data-action="newsWatchRestore"]').textContent.trim(),
         })"""
         english = self.page.evaluate(grab)
-        self.assertEqual(english, {"button": "Clear !", "all": "Clear all !", "cleared": "! cleared"})
+        self.assertEqual(english, {"button": "Clear !", "all": "Clear all !", "cleared": "! cleared", "back": "Bring back !", "backall": "Bring back all !"})
         bad = []
         try:
             for lang in LANGS:

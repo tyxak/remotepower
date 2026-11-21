@@ -800,6 +800,124 @@ class TestClearTheBang(_Server):
         self.assertNotIn('news_running', self.nav())
 
 
+
+class TestBringTheBangBack(_Server):
+    """A clear can be undone (8.0.2): the same route with `undo: true`. The item loses the time it was cleared at and shows its ! again, for every browser and every operator account,
+    in the state it had before; the mark of the sidebar and the tab goes by that state."""
+
+    def setUp(self):
+        super().setUp()
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, PHP, SECOND, advance=1800)
+
+    items = TestClearTheBang.items
+    nav = TestClearTheBang.nav
+    clear = TestClearTheBang.clear
+    stored = TestClearTheBang.stored
+    stored_at = TestClearTheBang.stored_at
+
+    def undo(self, body, token='k'):
+        return self.clear(dict(body, undo=True), token=token)
+
+    def test_one_cleared_item_gets_its_bang_back_by_its_id_and_no_other_does(self):
+        got = self.items()
+        self.clear({'all': True})
+        st, answer = self.undo({'ids': [got[NGINX[0]]['id']]})
+        self.assertEqual((st, answer['ok'], answer['restored']), (200, True, 1), answer)
+        self.assertNotIn('cleared', answer, 'an undo answers with what it restored, not with a count of clears')
+        after = {i['title']: i for i in answer['items']}
+        self.assertIsNone(after[NGINX[0]]['cleared_at'])
+        self.assertIsInstance(after[SECOND[0]]['cleared_at'], int, 'the other item is still cleared')
+        stored = self.stored()
+        self.assertIsNone(stored[NGINX[0]])
+        self.assertIsNotNone(stored[SECOND[0]])
+        self.assertNotIn('cleared_at', {i['title']: i for i in self.state()['items']}[NGINX[0]], 'the time is taken out of the store, not set to null')
+        self.assertEqual(self.audits[-1][1:], ('news_watch_unclear', 'items=1'))
+        self.assertEqual(self.audits[-1][0], 'admin', 'the audit log says who')
+
+    def test_all_brings_back_every_cleared_item_and_the_mark_comes_back_with_them(self):
+        self.clear({'all': True})
+        self.assertEqual(self.get_page()['needs_a_look'], 0)
+        self.assertNotIn('news_running', self.nav())
+        st, answer = self.undo({'all': True})
+        self.assertEqual((st, answer['restored']), (200, 2), answer)
+        self.assertEqual(set(self.stored().values()), {None})
+        page = self.get_page()
+        self.assertEqual(page['needs_a_look'], 2, 'the page counts them again')
+        self.assertEqual(self.nav()['news_running'], 2, 'and so does the sidebar')
+        self.assertEqual(page['attention_at'], max(self.stored_at(NGINX[0]), self.stored_at(SECOND[0])), 'by the time the items were found: what a browser has shown decides whether it is told')
+        self.assertEqual(self.audits[-1][1:], ('news_watch_unclear', 'items=2'))
+
+    def test_an_item_that_is_not_cleared_is_left_alone_and_nothing_is_logged(self):
+        got = self.items()
+        before = len(self.audits)
+        st, answer = self.undo({'ids': [got[NGINX[0]]['id'], got[PHP[0]]['id']]})
+        self.assertEqual((st, answer['restored']), (200, 0))
+        st, answer = self.undo({'all': True})
+        self.assertEqual((st, answer['restored']), (200, 0))
+        self.assertEqual(set(self.stored().values()), {None})
+        self.assertEqual(len(self.audits), before, 'nothing changed, so nothing is logged')
+
+    def test_a_clear_after_an_undo_works_and_stamps_its_own_time(self):
+        ident = self.items()[NGINX[0]]['id']
+        self.clear({'ids': [ident]})
+        first = self.stored()[NGINX[0]]
+        self.undo({'ids': [ident]})
+        time.sleep(1.1)
+        st, answer = self.clear({'ids': [ident]})
+        self.assertEqual((st, answer['cleared']), (200, 1), 'an item that was brought back can be cleared again')
+        self.assertGreater(self.stored()[NGINX[0]], first, 'with the time of this clear')
+
+    def test_an_item_cleared_while_no_host_ran_it_can_still_be_brought_back(self):
+        self.clear({'all': True})
+        self.hosts({'web01': (['sshd'], [])})
+        st, answer = self.undo({'all': True})
+        self.assertEqual((st, answer['restored']), (200, 2), 'an item that no host runs now has no ! to show, and the clear on it is still taken off')
+        self.assertEqual(set(self.stored().values()), {None})
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+        self.assertEqual(self.nav()['news_running'], 2, 'when a host runs it again, the ! is there')
+
+    def test_a_body_that_names_nothing_is_refused_with_its_own_words_and_changes_nothing(self):
+        self.clear({'all': True})
+        before = self.stored()
+        for body in ({}, {'ids': []}, {'ids': 'abc'}, {'ids': [7, None, '', {'a': 1}, ['n']]}, {'all': 'yes'}, {'all': 1}, {'all': False}):
+            st, answer = self.undo(body)
+            self.assertEqual((st, answer.get('error')), (400, 'Say which items to bring back'), body)
+        self.assertEqual(self.stored(), before, 'a refused request brought nothing back')
+
+    def test_only_a_true_undo_undoes(self):
+        ident = self.items()[NGINX[0]]['id']
+        for odd in ('yes', 1, 'true', [True], {'a': 1}):
+            self.assertEqual(self.clear({'ids': [ident], 'undo': odd})[1]['cleared'], 1, odd)       # not true: it is a clear, as it was before this field existed
+            self.assertIsNotNone(self.stored()[NGINX[0]], odd)
+            st, answer = self.undo({'ids': [ident]})
+            self.assertEqual((st, answer['restored']), (200, 1), odd)
+
+    def test_nobody_but_the_platform_operator_may_bring_it_back(self):
+        self.clear({'all': True})
+        before = self.stored()
+        st, answer = self.undo({'all': True}, token='v')
+        self.assertEqual(st, 403, 'a viewer')
+        self.tenancy()
+        for token, who in (('v', 'a viewer'), ('b', 'the administrator of a tenant')):
+            st, answer = self.undo({'all': True}, token=token)
+            self.assertEqual(st, 403, (who, answer))
+        self.assertIn('platform operator', answer['error'])
+        st, _ = self.undo({'all': True}, token=None)
+        self.assertEqual(st, 401)
+        self.assertEqual(self.stored(), before, 'nothing was brought back by a request that was refused')
+        st, answer = self.undo({'all': True}, token='k')
+        self.assertEqual((st, answer['restored']), (200, 2), 'control: the platform operator can')
+
+    def test_a_stored_cleared_at_that_is_not_a_whole_number_is_not_a_clear_and_is_left_as_it_is(self):
+        st = self.state()
+        st['items'][0]['cleared_at'] = 'x'
+        self.api.save(self.api.NEWS_WATCH_FILE, st)
+        self.api._LOAD_CACHE.clear()
+        st, answer = self.undo({'all': True})
+        self.assertEqual((st, answer['restored']), (200, 0), 'text is no time: the item was never cleared, and there is nothing to bring back')
+
 # ── feeds that fail, and the state that is kept ──────────────────────────────
 
 class TestTheFeeds(_Server):

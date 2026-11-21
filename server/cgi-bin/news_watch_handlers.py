@@ -499,12 +499,16 @@ def handle_news_watch_config_set():
 
 
 def handle_news_watch_clear():
-    """POST /api/news-watch/clear {ids?: [id, ...], all?: true} -- clear the red ! of items (8.0.2). The platform operator's.
+    """POST /api/news-watch/clear {ids?: [id, ...], all?: true, undo?: true} -- clear the red ! of items, or with `undo` bring it back (8.0.2). The platform operator's.
 
     An item shows a ! while it names software that runs on a host. Clearing says "seen": the item stays in the list with what runs on the hosts, loses its !, and no longer counts
     for the mark of the sidebar and the tab. The time is kept on the item in the store, so a clear holds for every browser and every operator account. Only an item that shows a ! now
     is cleared, for the ids as for `all`: an item that names software no host runs has no ! to clear, and the ! it gets when a host starts running that software is news. A body that
-    names nothing, or whose `all` is anything but true, is refused. The answer is the page and how many items were cleared: an id that is not listed, or already cleared, clears none."""
+    names nothing, or whose `all` is anything but true, is refused. The answer is the page and how many items were cleared: an id that is not listed, or already cleared, clears none.
+
+    `undo: true` turns the same body round: the ids, or `all`, name cleared items, and each of them loses the time it was cleared at. The ! is back for every browser and every operator
+    account in the state it had before the clear, which is also what the mark of the sidebar and the tab goes by: a browser that had not shown the item yet is told again, and one that had
+    shown it before it was cleared is not. An item that is not cleared is left as it is. The answer is the page and how many items were brought back (`restored`)."""
     actor = A.require_admin_auth()
     if A.method() != "POST":
         A.respond(405, {"error": "Method not allowed"})
@@ -513,9 +517,23 @@ def handle_news_watch_clear():
     raw = body.get("ids")
     ids = {x for x in (raw if isinstance(raw, list) else [])[:MAX_CLEAR_IDS] if isinstance(x, str) and x}
     everything = body.get("all") is True
+    restoring = body.get("undo") is True
     if not ids and not everything:
-        A.respond(400, {"error": "Say which items to clear"})
+        A.respond(400, {"error": "Say which items to bring back" if restoring else "Say which items to clear"})
     now = int(time.time())
+    if restoring:
+        restored = 0
+        with A._LockedUpdate(A.NEWS_WATCH_FILE) as st:
+            for i in st.get("items") if isinstance(st.get("items"), list) else []:
+                if not isinstance(i, dict) or _num(i.get("cleared_at")) is None:
+                    continue
+                if everything or i.get("id") in ids:
+                    del i["cleared_at"]
+                    restored += 1
+        if restored:
+            A.audit_log(actor, "news_watch_unclear", f"items={restored}")
+        A._invalidate_load_cache(A.NEWS_WATCH_FILE)
+        A.respond(200, dict(_view(now), ok=True, restored=restored))
     running = _running_now(now)
     extra = set(N.settings(A._config_ro().get("news_watch"))["words"])
     cleared = 0

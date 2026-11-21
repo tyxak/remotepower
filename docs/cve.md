@@ -614,8 +614,12 @@ a watch that is switched off.
 
 **Clearing the !.** An item with a ! has a **Clear !** button, and the line above the list has **Clear all !**. A cleared item stays in the list and still shows what runs
 on your hosts, but it loses its ! and no longer counts for the mark on the sidebar and the tab. It says **! cleared**, and when. The clear is kept on the server, so it holds
-in every browser and for every operator account, and it does not come back. **Clear all !** clears the items that show a ! at that moment. An item whose software no host runs
+in every browser and for every operator account, and it does not come back by itself. **Clear all !** clears the items that show a ! at that moment. An item whose software no host runs
 has none, and it gets one when a host starts to run that software. A new item shows its own !. Only the platform operator can clear.
+
+**Bringing the ! back.** A cleared item has a **Bring back !** button, and the line above the list has **Bring back all !** while any item is cleared. They undo a clear, for every
+browser and every operator account: the item shows its ! again, in the state it had before. The mark on the sidebar and the tab goes by that state, so a browser that had not shown
+the item yet is told again, and a browser that had shown it before it was cleared is not.
 
 Most package names start with an everyday word: `console-setup`, `command-not-found`, `software-properties-common`, `xml-core`. They do not make an article about
 a management console or a command line relevant. The first word of a package name counts only when it is software people write about, or when something runs

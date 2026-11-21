@@ -6,6 +6,7 @@
 //   newsWatchSave()    send the settings as they stand (the platform operator's)
 //   newsWatchRun()     read the feeds now (the platform operator's)
 //   newsWatchClear()   clear the red ! of one item, or of every item that shows one (the platform operator's)
+//   newsWatchRestore() bring the red ! back for one cleared item, or for every cleared one (the platform operator's)
 //
 // A headline, a link, a feed's name and the name of a program all came from outside, so they are only ever put in the page with escHtml, and a link only through _safeHttpHref.
 // The form is filled from the server when the tab is first drawn, after a save and when Refresh is pressed, and never by a redraw that follows a visit: what an operator is
@@ -78,7 +79,10 @@ function _nwItemHtml(i) {
   const bang = flagged ? '<span class="c-red fw-600" aria-hidden="true">!</span> ' : '';
   // the id goes through data-arg with a prefix: the data-action dispatcher turns an argument that looks like a number into one, and 16 hex digits can look like one
   const clear = flagged ? ` <button type="button" class="btn-icon" data-action="newsWatchClear" data-arg="nw-${escAttr(String(i.id || ''))}">Clear !</button>` : '';
-  const done = runs.length && _nwCleared(i) ? `<span class="hint">! cleared</span> ${timeAgoHtml(i.cleared_at)}` : '';
+  const cleared = runs.length > 0 && _nwCleared(i);
+  const done = cleared ? `<span class="hint">! cleared</span> ${timeAgoHtml(i.cleared_at)}` : '';
+  // a clear can be undone, on the item that shows it: same prefixed id as the button that clears
+  const back = cleared ? ` <button type="button" class="btn-icon" data-action="newsWatchRestore" data-arg="nw-${escAttr(String(i.id || ''))}">Bring back !</button>` : '';
   const head = bang + (href
     ? `<a href="${href}" target="_blank" rel="noopener noreferrer" class="fw-500" data-no-i18n>${title}</a>`
     : `<span class="fw-500" data-no-i18n>${title}</span>`);
@@ -92,7 +96,7 @@ function _nwItemHtml(i) {
   const cves = (i.cves || []).length ? `<span class="mono-12" data-no-i18n>${escHtml(i.cves.slice(0, 3).join(', '))}</span>` : '';
   const when = i.published || i.seen_at;
   const meta = [ran, soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : '', done].filter(Boolean).join(' · ');
-  return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}${clear}</div><div class="hint mt-6">${meta}</div></div>`;
+  return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}${clear}${back}</div><div class="hint mt-6">${meta}</div></div>`;
 }
 
 function _nwFillForm(d) {
@@ -136,13 +140,19 @@ function _nwPaint(d, force) {
   else _nwNote('');
   if (feeds) feeds.innerHTML = (d.status || []).map(_nwFeedHtml).join('');
   const bangs = (d.items || []).filter(_nwBang).length;
+  const cleared = (d.items || []).filter(i => _nwCleared(i) && _nwRunning(i).length > 0).length;
   const sum = document.getElementById('news-watch-running');
   if (sum) {
-    sum.hidden = !bangs;
-    sum.innerHTML = bangs
+    sum.hidden = !bangs && !cleared;
+    sum.innerHTML = (bangs
       ? `<span class="c-red fw-600" aria-hidden="true">!</span> <span class="hint">Items about software running on your hosts:</span> <strong>${escHtml(String(bangs))}</strong>`
         + ` <button type="button" class="btn-icon" data-action="newsWatchClear" data-arg="all">Clear all !</button>`
-      : '';
+      : '')
+      + (bangs && cleared ? ' · ' : '')
+      + (cleared
+        ? `<span class="hint">! cleared</span> <strong>${escHtml(String(cleared))}</strong>`
+          + ` <button type="button" class="btn-icon" data-action="newsWatchRestore" data-arg="all">Bring back all !</button>`
+        : '');
   }
   if (items) items.innerHTML = (d.items || []).length ? d.items.map(_nwItemHtml).join('') : '<div class="c-muted">No critical items yet.</div>';
   _nwSeen(d.attention_at);
@@ -187,7 +197,17 @@ async function newsWatchSave() {
 // letters and digits): a tighter rule would leave a listed item with a button that does nothing. The sidebar's poll is asked again so the mark there agrees at once.
 async function newsWatchClear(arg) {
   if (arg !== 'all' && !(typeof arg === 'string' && /^nw-[A-Za-z0-9_-]{1,32}$/.test(arg))) return;
-  const r = await api('POST', '/news-watch/clear', arg === 'all' ? { all: true } : { ids: [arg.slice(3)] });
+  await _nwSend(arg === 'all' ? { all: true } : { ids: [arg.slice(3)] });
+}
+
+// Bring the ! back for one cleared item ('nw-<id>') or for every cleared item ('all'): the same route, the same argument rule, and `undo: true`.
+async function newsWatchRestore(arg) {
+  if (arg !== 'all' && !(typeof arg === 'string' && /^nw-[A-Za-z0-9_-]{1,32}$/.test(arg))) return;
+  await _nwSend(arg === 'all' ? { all: true, undo: true } : { ids: [arg.slice(3)], undo: true });
+}
+
+async function _nwSend(body) {
+  const r = await api('POST', '/news-watch/clear', body);
   if (!r || r.error) { failToast(r); return; }
   ++_nwSeq;
   _nwPaint(r, false);

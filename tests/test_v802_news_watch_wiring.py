@@ -291,11 +291,13 @@ class TestTheSentencesAreTranslated(unittest.TestCase):
         sentences |= set(re.findall(r'<span class="hint">([^<$]+)</span>', NW))
         sentences |= set(re.findall(r"<div class=\"c-muted\">([^<]+)</div>", NW))
         sentences |= set(re.findall(r'data-action="newsWatchClear"[^>]*>([^<]+)</button>', NW))      # the labels of the buttons that clear a !
+        sentences |= set(re.findall(r'data-action="newsWatchRestore"[^>]*>([^<]+)</button>', NW))    # and of the ones that bring it back
         sentences |= {'Called critical', 'Failed:', 'reachable from the Internet', 'Running on your hosts:', 'Items about software running on your hosts:'}
         sentences.add('A red ! marks an item that names software running on one of your hosts. An item that names software that is only installed has no !.')
         sentences |= {'Only items that name software running on my hosts', 'Other software to count, one name on each line',
                       'Names of software that is installed on your hosts and is not on the built-in list. A package whose name starts with one of them counts when a headline names it.',
-                      'A security news item names software that runs on your hosts', 'Clear !', 'Clear all !', '! cleared', 'Say which items to clear'}
+                      'A security news item names software that runs on your hosts', 'Clear !', 'Clear all !', '! cleared', 'Say which items to clear',
+                      'Bring back !', 'Bring back all !', 'Say which items to bring back'}
         self.assertGreaterEqual(len(sentences), 20, 'control: the scan found the sentences')
         missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in sorted(sentences) if not set(LANGS) <= rows.get(s, set())}
         self.assertEqual(missing, {}, 'sentences the Security news tab shows with no translation')
@@ -393,7 +395,8 @@ class TestThePageIsSafe(unittest.TestCase):
         base = {'id': '1234567890123456', 'feed': 'F', 'title': 'Critical nginx flaw', 'link': 'https://n.example/x', 'published': 1, 'seen_at': 2, 'reasons': ['critical'], 'cves': [], 'cvss': None,
                 'software': [], 'outcome': 'scanned', 'running': run, 'cleared_at': None}
         cases = {'flagged': base, 'cleared': dict(base, cleared_at=1800000500), 'installed_only': dict(base, running=[]), 'junk_stamp': dict(base, cleared_at='x'),
-                 'hostile_id': dict(base, id='"><img src=x onerror=alert(1)>')}
+                 'hostile_id': dict(base, id='"><img src=x onerror=alert(1)>'), 'hostile_id_cleared': dict(base, id='"><img src=x onerror=alert(1)>', cleared_at=5),
+                 'cleared_and_not_running': dict(base, running=[], cleared_at=1800000500)}
         out = self._node(self._helpers() + 'const document = {getElementById: () => null};\n' + NW + '\nconst cases = ' + json.dumps(cases)
                          + ';\nconst out = {}; for (const k in cases) out[k] = _nwItemHtml(cases[k]); console.log(JSON.stringify(out));')
         bang = '<span class="c-red fw-600" aria-hidden="true">!</span>'
@@ -410,6 +413,14 @@ class TestThePageIsSafe(unittest.TestCase):
         self.assertIn(bang, out['junk_stamp'], 'a stamp that is not a number is no clear')
         self.assertNotIn('<img', out['hostile_id'])
         self.assertIn('&lt;img', out['hostile_id'], 'the id is escaped in the attribute')
+        # a clear can be undone, on the item that shows it: a cleared item that runs has the button, with the same prefixed id, and no other item has it
+        back = 'data-action="newsWatchRestore" data-arg="nw-1234567890123456">Bring back !</button>'
+        self.assertIn(back, out['cleared'], 'a cleared item has a button to bring the ! back')
+        for key in ('flagged', 'installed_only', 'junk_stamp', 'cleared_and_not_running'):
+            self.assertNotIn('newsWatchRestore', out[key], key + ': nothing to bring back')
+        self.assertNotIn('<img', out['hostile_id_cleared'])
+        self.assertIn('&lt;img', out['hostile_id_cleared'], 'the id is escaped in the attribute of the button that brings it back too')
+        self.assertEqual(re.findall(r'data-arg="([^"]*)"', out['cleared']), ['nw-1234567890123456'])
         # the dispatcher turns an argument that looks like a number into one (app.js: coerce), and sixteen hex digits can look like one: the prefix is what keeps the id a string
         coerce = 'const coerce = v => (v !== undefined && v !== "" && !isNaN(v)) ? Number(v) : v;'
         args = re.findall(r'data-arg="([^"]*)"', out['flagged'])
@@ -424,7 +435,8 @@ class TestThePageIsSafe(unittest.TestCase):
                 'running': [{'name': 'nginx', 'hosts': 1, 'world': False}], 'cleared_at': None}
         page = {'editable': True, 'enabled': True, 'feeds': ['https://x.example/f'], 'last_run': 1, 'scope': 'relevant', 'action': 'scan', 'words': [], 'status': []}
         cases = {'two_of_three': [item, dict(item, id='bbbbbbbbbbbbbbbb'), dict(item, id='cccccccccccccccc', cleared_at=5), dict(item, id='dddddddddddddddd', running=[])],
-                 'all_cleared': [dict(item, cleared_at=5), dict(item, id='bbbbbbbbbbbbbbbb', cleared_at=6)], 'none_run': [dict(item, running=[])], 'no_items': []}
+                 'all_cleared': [dict(item, cleared_at=5), dict(item, id='bbbbbbbbbbbbbbbb', cleared_at=6)], 'none_run': [dict(item, running=[])], 'no_items': [],
+                 'cleared_and_nothing_runs': [dict(item, cleared_at=5, running=[])]}
         script = (self._helpers() + 'const els = {};\nconst document = {getElementById: id => (els[id] = els[id] || {hidden: false, innerHTML: "", textContent: "", value: ""})};\n' + NW
                   + '\nconst page = ' + json.dumps(page) + ', cases = ' + json.dumps(cases) + ';\nconst out = {};\n'
                   'for (const k in cases) { _nwPaint(Object.assign({}, page, {items: cases[k]}), true); out[k] = {hidden: els["news-watch-running"].hidden, html: els["news-watch-running"].innerHTML}; }\n'
@@ -434,8 +446,18 @@ class TestThePageIsSafe(unittest.TestCase):
         self.assertFalse(two['hidden'])
         self.assertIn('<strong>2</strong>', two['html'], 'two items show a !: the cleared one and the one that runs nothing do not count')
         self.assertIn('data-action="newsWatchClear" data-arg="all">Clear all !</button>', two['html'])
-        for key in ('all_cleared', 'none_run', 'no_items'):
-            self.assertEqual((out[key]['hidden'], out[key]['html']), (True, ''), key + ': no ! shown, no line and no button')
+        # the cleared one that runs is counted on its own and can be brought back, after the part that clears
+        self.assertIn('<span class="hint">! cleared</span> <strong>1</strong> <button type="button" class="btn-icon" data-action="newsWatchRestore" data-arg="all">Bring back all !</button>', two['html'])
+        self.assertLess(two['html'].index('Clear all !'), two['html'].index('Bring back all !'))
+        self.assertIn(' · ', two['html'], 'the two parts are told apart')
+        cleared = out['all_cleared']
+        self.assertFalse(cleared['hidden'], 'when every item is cleared the line stays, to offer them back')
+        self.assertIn('<strong>2</strong>', cleared['html'])
+        self.assertIn('data-action="newsWatchRestore" data-arg="all">Bring back all !</button>', cleared['html'])
+        self.assertNotIn('newsWatchClear', cleared['html'], 'nothing is left to clear')
+        self.assertNotIn(' · ', cleared['html'], 'one part, no separator')
+        for key in ('none_run', 'no_items', 'cleared_and_nothing_runs'):
+            self.assertEqual((out[key]['hidden'], out[key]['html']), (True, ''), key + ': no ! shown and nothing cleared that runs, so no line and no button')
 
     def test_the_clear_sends_one_id_or_all_and_nothing_else(self):
         script = (self._helpers() + 'const document = {getElementById: () => null};\n'
@@ -466,10 +488,36 @@ class TestThePageIsSafe(unittest.TestCase):
         self.assertEqual(out['failed'], [1, 0, 0], 'a refusal is said, the page is left as it is and the sidebar is not asked')
         self.assertEqual(out['broken_poll'], 1, 'a sidebar poll that fails does not undo the redraw')
 
+    def test_bringing_it_back_sends_one_id_or_all_with_undo_and_nothing_else(self):
+        script = (self._helpers() + 'const document = {getElementById: () => null};\n'
+                  'let calls = [], painted = [], toasts = [], navs = 0, answer = {ok: true, editable: true, items: []};\n'
+                  'async function api(m, p, b) { calls.push([m, p, JSON.stringify(b)]); return answer; }\n'
+                  'function failToast(r) { toasts.push(r); }\n'
+                  'function refreshNavCounts() { navs++; }\n' + NW + '\n'
+                  '_nwPaint = function (d, force) { painted.push([d === answer, force]); };\n'
+                  '(async () => {\n'
+                  '  const out = {};\n'
+                  '  for (const a of ["all", "nw-0123456789abcdef", "nw-demonews00000001"]) await newsWatchRestore(a);\n'
+                  '  out.sent = calls.slice(); out.painted = painted.slice(); out.navs = navs;\n'
+                  '  calls = [];\n'
+                  '  for (const a of [5, 0, "nw-", "nw-../x", "nw-a b", "nw-" + "a".repeat(33), "nw-\\"><img src=x onerror=alert(1)>", "x", "", "ALL", undefined, null, {}, ["all"], true]) await newsWatchRestore(a);\n'
+                  '  out.refused_sent = calls.length;\n'
+                  '  answer = {error: "nope"}; painted = []; navs = 0; await newsWatchRestore("all");\n'
+                  '  out.failed = [toasts.length, painted.length, navs];\n'
+                  '  console.log(JSON.stringify(out));\n'
+                  '})();\n')
+        out = self._node(script)
+        self.assertEqual(out['sent'], [['POST', '/news-watch/clear', '{"all":true,"undo":true}'], ['POST', '/news-watch/clear', '{"ids":["0123456789abcdef"],"undo":true}'],
+                                       ['POST', '/news-watch/clear', '{"ids":["demonews00000001"],"undo":true}']], 'the same route as the clear, with undo, and the same ids')
+        self.assertEqual(out['painted'], [[True, False]] * 3, 'the answer is the page, drawn without refilling the form')
+        self.assertEqual(out['navs'], 3, 'the sidebar is asked again so its mark agrees at once')
+        self.assertEqual(out['refused_sent'], 0, 'an argument that is not "all" or a prefixed id is not sent')
+        self.assertEqual(out['failed'], [1, 0, 0], 'a refusal is said, the page is left as it is and the sidebar is not asked')
+
     def test_every_action_the_script_puts_in_markup_is_a_function_of_the_script(self):
         actions = set(re.findall(r'data-action="(\w+)"', NW))
         functions = set(re.findall(r'^(?:async )?function (\w+)\(', NW, re.M))
-        self.assertTrue({'newsWatchClear'} <= actions, 'control: the scan found the buttons of the clear')
+        self.assertTrue({'newsWatchClear', 'newsWatchRestore'} <= actions, 'control: the scan found the buttons of the clear and of the undo')
         self.assertEqual(actions - functions, set(), 'a button whose function is not in the file does nothing, and says nothing')
 
     def test_control_a_good_item_is_a_link_with_its_reasons_and_what_was_done(self):
