@@ -19731,6 +19731,7 @@ const EVENT_CLASS = {
   'traffic_watch': 'warn',   // 8.0.0: a host connected to something on the Traffic watch list
   'detection_found': 'critical',   // 8.0.0: a Detections rule found behaviour that looks like an attack
   'security_news_critical': 'warn',   // 8.0.2: a security news feed reports a critical flaw
+  'security_news_feed_failing': 'warn', 'security_news_feed_recovered': 'ok',   // 8.0.2: a feed that keeps failing, and the first read that works
   'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
@@ -22406,6 +22407,7 @@ function _renderHomeActivity(fleetEvents) {
     'traffic_watch',   // 8.0.0
     'detection_found',   // 8.0.0
     'security_news_critical',   // 8.0.2
+    'security_news_feed_failing', 'security_news_feed_recovered',   // 8.0.2
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
@@ -22569,7 +22571,7 @@ function _renderHomeActivity(fleetEvents) {
       // The subject is whatever identifies the specific thing the
       // event is about — the same fields the row renderer shows.
       const subject = p.path || p.unit || p.metric || p.cve_id
-                      || p.pattern || p.command || (e.event === 'detection_found' ? p.detail : e.event === 'security_news_critical' ? p.title : '') || '';   // 8.0.0: two findings on one host are two rows; 8.0.2: so are two headlines
+                      || p.pattern || p.command || (e.event === 'detection_found' ? p.detail : e.event === 'security_news_critical' ? p.title : e.event.startsWith('security_news_feed_') ? p.label : '') || '';   // 8.0.0: two findings on one host are two rows; 8.0.2: so are two headlines
       const key = `${e.event}|${host}|${subject}`;
       if (_seenActivity.has(key)) return false;
       _seenActivity.add(key);
@@ -22634,6 +22636,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = `${p.repo || ''}${p.number ? ` #${p.number}` : ''}${p.title ? `: ${p.title}` : ''}`; break;
       case 'security_news_critical':   // 8.0.2: the headline, and the feed it came from
         detail = `${p.title || ''}${p.source ? ` (${p.source})` : ''}`; break;
+      case 'security_news_feed_failing': case 'security_news_feed_recovered':   // 8.0.2: what the alert says: which feed, and why
+        detail = p.detail || p.label || ''; break;
       case 'ip_blacklisted':
         detail = `${p.ip || ''}${p.blocklists ? ' — ' + p.blocklists : ''}`; break;
       case 'ip_blacklist_cleared':
@@ -22678,6 +22682,7 @@ function _homeActivityAttrs(event, p) {
     case 'detection_found':   // 8.0.0: the findings are on the Detections tab of the Threat Intel page
       return `${base} data-home-act="detections"`;
     case 'security_news_critical':   // 8.0.2: the headline is on the Security news tab of the CVE page
+    case 'security_news_feed_failing': case 'security_news_feed_recovered':   // 8.0.2: and the state of each feed is on the same tab
       return `${base} data-home-act="cve-news"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;

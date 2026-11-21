@@ -270,12 +270,21 @@ class TestTheClientNamesIt(unittest.TestCase):
         self.assertIn("e.event === 'security_news_critical' ? p.title", feed, 'two headlines are two rows')
         self.assertIn("case 'security_news_critical':", feed)
 
+    def test_a_feed_that_keeps_failing_is_in_the_inbox_and_the_activity_feed_and_one_row_for_each_feed(self):
+        for event, tone in (('security_news_feed_failing', 'warn'), ('security_news_feed_recovered', 'ok')):
+            self.assertRegex(APP, r"'%s': '%s'" % (event, tone), 'the tone of the row')
+        feed = APP[APP.index('function _renderHomeActivity'):]
+        self.assertIn("'security_news_feed_failing', 'security_news_feed_recovered',", feed[:feed.index('const _seenActivity')], 'the allow list of the activity feed')
+        self.assertIn("e.event.startsWith('security_news_feed_') ? p.label", feed, 'two failing feeds are two rows, told apart by the feed')
+        self.assertIn("case 'security_news_feed_failing': case 'security_news_feed_recovered':", feed)
+        self.assertIn('detail = p.detail || p.label', feed, 'the row says which feed, and why')
+
     @unittest.skipUnless(NODE, 'node not installed')
     def test_a_headline_in_the_feed_opens_the_tab_and_no_other_event_does(self):
         body = srcpin.js_function(APP, '_homeActivityAttrs')
         script = ('function escAttr(s){return String(s);}\n' + body + '\n'
                   'const out = {};\n'
-                  'for (const ev of ["security_news_critical", "detection_found", "cve_found", "tls_expiry", "ct_new_certificate"]) out[ev] = _homeActivityAttrs(ev, {});\n'
+                  'for (const ev of ["security_news_critical", "security_news_feed_failing", "security_news_feed_recovered", "detection_found", "cve_found", "tls_expiry", "ct_new_certificate"]) out[ev] = _homeActivityAttrs(ev, {});\n'
                   'console.log(JSON.stringify(out));\n')
         d = Path(tempfile.mkdtemp(prefix='rp-newsroute-'))
         try:
@@ -286,6 +295,8 @@ class TestTheClientNamesIt(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-400:])
         out = json.loads(r.stdout)
         self.assertIn('data-home-act="cve-news"', out[EVENT])
+        self.assertIn('data-home-act="cve-news"', out['security_news_feed_failing'], 'the state of each feed is on the same tab')
+        self.assertIn('data-home-act="cve-news"', out['security_news_feed_recovered'])
         for other in ('detection_found', 'cve_found', 'tls_expiry', 'ct_new_certificate'):
             self.assertNotIn('data-home-act="cve-news"', out[other], 'a case group lost its return to the new one: %s' % other)
 

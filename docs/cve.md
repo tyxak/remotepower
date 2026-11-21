@@ -665,6 +665,11 @@ The first read of a feed only records what it holds, so switching the watch on d
 counts when it is new and no more than three days old. One read raises at most five alerts, and the tab says which items went over. For each feed the tab
 shows when it was read, how many new items it held and, when a read failed, why.
 
+**A feed that keeps failing.** A feed that cannot be read looks like a quiet week, and the stream of critical items the watch exists for has stopped. When one feed fails six reads in a
+row (three hours), the watch raises the alert `security_news_feed_failing` once: it is in the Alerts inbox and the activity feed, goes to the channels you chose for **Health**, and says which
+feed (by its title, or else its host) and the last answer. The address is not in it. The first read that works raises `security_news_feed_recovered`, which closes the alert. Taking the feed
+out of the list, or switching the watch off, closes it too. Two feeds with the same name are two alerts.
+
 ### Who can use it, and what it reads
 
 - Only the platform operator can read or change the watch. With multi-tenancy on, a tenant administrator sees nothing of it, because the software an item

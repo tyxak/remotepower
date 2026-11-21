@@ -616,6 +616,163 @@ class TestCriticalWordsEndToEnd(_Server):
         self.api._LOAD_CACHE.clear()
         self.assertNotIn('critical_words', self.api.load(self.api.CONFIG_FILE)['news_watch'])
 
+
+class TestAFeedThatKeepsFailing(_Server):
+    """A feed that cannot be read looks like a quiet week (8.0.2): six reads in a row that fail raise one alert, the first read that works closes it, and a feed that is no longer
+    watched closes its own. Driven through the real poll, the real alert path and the real recovery."""
+
+    FAILING, RECOVERED = 'security_news_feed_failing', 'security_news_feed_recovered'
+
+    def fail(self, n, url=FEED, error=None):
+        for _ in range(n):
+            self.t += 1800
+            self.feeds[url] = error or OSError('connection refused')
+            self.api._LOAD_CACHE.clear()
+            self.mod.poll_once(self.t)
+            self.api._LOAD_CACHE.clear()
+
+    def ok(self, url=FEED, title='Example Security News'):
+        self.t += 1800
+        self.feeds[url] = feed(entry(self.t, 'Quiet news', guid='q'), title=title)
+        self.api._LOAD_CACHE.clear()
+        self.mod.poll_once(self.t)
+        self.api._LOAD_CACHE.clear()
+
+    def raised(self, event):
+        self.api._LOAD_CACHE.clear()
+        store = self.api.load(self.api.ALERTS_FILE) or {}
+        return [a for a in (store.get('alerts') if isinstance(store, dict) else store) or [] if a.get('event') == event]
+
+    def open_ones(self):
+        return [a for a in self.raised(self.FAILING) if not a.get('resolved_at') and a.get('status') != 'resolved']
+
+    def test_five_failures_say_nothing_and_the_sixth_raises_one_alert_that_names_the_feed_and_never_the_address(self):
+        self.settings(feeds=[FEED])
+        self.fail(5)
+        self.assertEqual(self.raised(self.FAILING), [], 'five reads in a row are not yet a pattern')
+        self.assertEqual(self.state()['feeds'][FEED]['fail_streak'], 5)
+        self.fail(1)
+        (alert,) = self.raised(self.FAILING)
+        self.assertEqual(alert['severity'], 'medium')
+        p = alert['payload']
+        self.assertEqual(p['label'], 'news.example.net', 'a feed never read has no title: its host')
+        self.assertRegex(p['dest'], r'^feed:[0-9a-f]{12}$')
+        self.assertIn('could not be read 6 times in a row', p['detail'])
+        self.assertIn('connection refused', p['detail'], 'and the last answer')
+        self.assertNotIn(FEED, json.dumps(alert), 'the address is not in the alert')
+        self.assertNotIn('/security.xml', json.dumps(alert))
+        self.assertTrue(self.state()['feeds'][FEED]['fail_alerted'])
+        self.assertEqual(self.api.EVENT_REGISTRY[self.FAILING]['kind'], 'health')
+
+    def test_it_is_raised_once_however_long_the_feed_keeps_failing(self):
+        """Once means one firing: an alert that is fired every time would be one row (a repeat of an open alert is folded into it) and a message through every channel at each read."""
+        fired = []
+        real = self.api.fire_webhook
+        self.api.fire_webhook = lambda event, payload: (fired.append(event), real(event, payload))[1]
+        self.settings(feeds=[FEED])
+        self.fail(14)
+        self.assertEqual(fired.count(self.FAILING), 1, 'sent once, at the sixth failure')
+        self.assertEqual(len(self.raised(self.FAILING)), 1)
+        self.assertEqual(self.state()['feeds'][FEED]['fail_streak'], 14)
+        self.ok()
+        self.assertEqual(fired.count(self.RECOVERED), 1, 'and the recovery once')
+
+    def test_the_first_read_that_works_closes_it_and_a_second_period_raises_a_new_one(self):
+        self.settings(feeds=[FEED])
+        self.fail(6)
+        self.assertEqual(len(self.open_ones()), 1)
+        self.ok()
+        (alert,) = self.raised(self.FAILING)
+        self.assertTrue(alert.get('resolved_at') or alert.get('status') == 'resolved', 'the recovery closed the row through the real path: %r' % {k: alert.get(k) for k in ('status', 'resolved_at')})
+        self.assertEqual(self.open_ones(), [])
+        st = self.state()['feeds'][FEED]
+        self.assertEqual((st['fail_streak'], st['fail_alerted'], st['last_error']), (0, False, ''))
+        self.assertEqual(len(self.raised(self.RECOVERED)), 0, 'a recovery is not an inbox row of its own: it closes the one that was raised')
+        self.fail(6)
+        self.assertEqual(len(self.open_ones()), 1, 'a second period of failures is a second alert')
+        self.assertEqual(len(self.raised(self.FAILING)), 2)
+
+    def test_a_feed_that_was_read_before_is_named_by_its_title(self):
+        self.settings(feeds=[FEED])
+        self.ok(title='The Example Feed')
+        self.fail(6)
+        (alert,) = self.raised(self.FAILING)
+        self.assertEqual(alert['payload']['label'], 'The Example Feed')
+
+    def test_two_feeds_with_one_name_are_two_alerts_and_a_recovery_closes_only_its_own(self):
+        self.settings(feeds=[FEED, FEED2])
+        self.ok(FEED, 'Same Name')
+        self.ok(FEED2, 'Same Name')
+        self.fail(6, FEED)
+        self.fail(6, FEED2)
+        rows = self.open_ones()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len({r['payload']['dest'] for r in rows}), 2, 'told apart by the key, not by the name they share')
+        self.ok(FEED, 'Same Name')
+        left = self.open_ones()
+        self.assertEqual(len(left), 1)
+        self.assertEqual(left[0]['payload']['dest'], self.mod._feed_key(FEED2), 'the other feed still fails')
+
+    def test_a_feed_taken_out_of_the_list_closes_its_alert_when_the_settings_are_saved(self):
+        self.settings(feeds=[FEED, FEED2])
+        self.ok(FEED2)           # the other feed reads well, so only FEED fails
+        self.fail(6, FEED)
+        self.assertEqual(len(self.open_ones()), 1)
+        st, got = self.request('/api/news-watch/config', 'POST', body={'feeds': [FEED2]})
+        self.assertEqual(st, 200, got)
+        self.assertEqual(self.open_ones(), [], 'the feed is no longer watched, so nothing is failing')
+        self.assertFalse(self.state()['feeds'].get(FEED, {}).get('fail_alerted'))
+
+    def test_a_feed_that_was_taken_out_by_another_way_is_closed_by_the_next_read(self):
+        self.settings(feeds=[FEED, FEED2])
+        self.ok(FEED2)
+        self.fail(6, FEED)
+        self.assertEqual(len(self.open_ones()), 1)
+        self.settings(feeds=[FEED2])
+        self.ok(FEED2)
+        self.assertEqual(self.open_ones(), [])
+        self.assertNotIn(FEED, self.state()['feeds'])
+
+    def test_switching_the_watch_off_closes_every_open_alert_about_a_feed(self):
+        self.settings(feeds=[FEED, FEED2])
+        self.fail(6, FEED)
+        self.fail(6, FEED2)
+        self.assertEqual(len(self.open_ones()), 2)
+        st, got = self.request('/api/news-watch/config', 'POST', body={'enabled': False})
+        self.assertEqual(st, 200, got)
+        self.assertEqual(self.open_ones(), [])
+        st, got = self.request('/api/news-watch/config', 'POST', body={'enabled': False})
+        self.assertEqual(st, 200, 'a second save with nothing open does nothing and does not fail')
+
+    def test_a_setting_that_leaves_the_feed_in_place_leaves_its_alert_open(self):
+        self.settings(feeds=[FEED])
+        self.fail(6)
+        st, got = self.request('/api/news-watch/config', 'POST', body={'scope': 'all', 'critical_words': ['wp2shell']})
+        self.assertEqual(st, 200, got)
+        self.assertEqual(len(self.open_ones()), 1)
+
+    def test_the_alert_is_the_installations_and_a_tenant_administrator_is_not_shown_it(self):
+        self.settings(feeds=[FEED])
+        self.fail(6)
+        self.tenancy()
+        st, got = self.request('/api/alerts', token='b')
+        self.assertEqual(st, 200, got)
+        rows = got.get('alerts') if isinstance(got, dict) else got
+        self.assertEqual([a for a in rows or [] if a.get('event') == self.FAILING], [], 'no tenant sees it')
+        st, got = self.request('/api/alerts', token='k')
+        rows = got.get('alerts') if isinstance(got, dict) else got
+        self.assertEqual(len([a for a in rows or [] if a.get('event') == self.FAILING]), 1, 'control: the platform operator does')
+
+    def test_the_activity_feed_has_a_row_for_each_and_the_page_is_not_given_the_flag(self):
+        self.settings(feeds=[FEED])
+        self.fail(6)
+        self.ok()
+        events = [e for e in (self.api.load(self.api.FLEET_EVENTS_FILE) or {}).get('events', []) if e.get('event') in (self.FAILING, self.RECOVERED)]
+        self.assertEqual([e['event'] for e in events], [self.FAILING, self.RECOVERED])
+        self.assertIn('news.example.net', events[0]['payload'].get('label', '') + json.dumps(events[0]['payload']))
+        page = self.get_page()
+        self.assertNotIn('fail_alerted', json.dumps(page), 'the state that stops a second alert is not for a page')
+
 # ── the mark of the tab and of the sidebar ───────────────────────────────────
 
 class TestTheMark(_Server):

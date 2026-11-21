@@ -108,6 +108,7 @@ _EVENT_COLORS = {
     "traffic_watch": 0xF59E0B,
     "detection_found": 0xEF4444,
     "security_news_critical": 0xEF4444,
+    "security_news_feed_failing": 0xF59E0B,
     "containers_stale": 0xF59E0B,
     "cve_found": 0xEF4444,
     "log_alert": 0xF59E0B,
@@ -1277,6 +1278,8 @@ def _webhook_message(event, payload):
         "mitigation_unverified",
         "notify_dest_failing",
         "notify_dest_recovered",
+        "security_news_feed_failing",
+        "security_news_feed_recovered",
     ):
         # v6.4.2: control-plane health. Fleet-level, so `name` is the server and
         # the generic fallback would read "sweep_failing: unknown".

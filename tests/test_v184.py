@@ -270,6 +270,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'traffic_watch',                                      # 8.0.0: a host connected to something on the Traffic watch list
             'detection_found',                                     # 8.0.0: a Detections rule found behaviour that looks like an attack
             'security_news_critical',                              # 8.0.2: a security news feed reports a critical flaw
+            'security_news_feed_failing', 'security_news_feed_recovered',   # 8.0.2: a news feed that keeps failing, and the first read that works
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
             'custom_metric_alert', 'custom_metric_recover',    # W3-11

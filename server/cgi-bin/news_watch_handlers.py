@@ -25,6 +25,7 @@ so a failed save cannot send one twice. Everything is off until an operator swit
 keeps its place in the list and stops counting for the mark of the sidebar and the tab.
 """
 
+import hashlib
 import sys
 import time
 import urllib.error
@@ -61,6 +62,7 @@ EVERY_S = 1800  # seconds between two reads of the feeds; the feeds themselves c
 SCAN_GAP_S = 6 * 3600  # at most one scan started by the watch in this time, whatever the feeds say
 MAX_ALERTS_PER_RUN = 5  # alerts one read raises; a critical item beyond it is listed and says so
 MANUAL_GAP_S = 60  # "Check now" is refused when the feeds were read less than this long ago
+FEED_FAIL_STREAK = 6  # reads of one feed that fail in a row before an alert says so: three hours at the cadence of EVERY_S
 FETCH_TIMEOUT_S = 10  # for each step of a connection
 FETCH_DEADLINE_S = 25  # for the whole of one feed, so a server that sends a byte at a time cannot hold the read
 RUN_BUDGET_S = 45  # for all the feeds of one read; a feed past it is read next time
@@ -114,6 +116,52 @@ def _fetch(url):
                 raise TimeoutError("the feed took too long to arrive")
             chunks.append(block)
     return b"".join(chunks)
+
+
+def _feed_key(url):
+    """What an alert about one feed is told apart by: a short hash of its address. Two feeds can have the same name, and the address itself stays out of the alert."""
+    return "feed:" + hashlib.sha256(str(url).encode("utf-8", "replace")).hexdigest()[:12]
+
+
+def _feed_event(kind, url, rec, streak=0):
+    """(event, payload) for a feed that keeps failing (`failing`), is read again (`recovered`) or stopped being watched (`removed`, which closes the same alert).
+    The payload names the feed by its title or else its host, and says what the page says; the address is not in it."""
+    rec = rec if isinstance(rec, dict) else {}
+    label = (str(rec.get("title") or "")[:120] or urllib.parse.urlsplit(str(url)).hostname or "a feed")
+    if kind == "failing":
+        err = N._clean(str(rec.get("last_error") or ""), 160) or "no answer"
+        return "security_news_feed_failing", {"label": label, "dest": _feed_key(url), "detail": f"{label} could not be read {streak} times in a row. The last answer: {err}"[:300]}
+    detail = "This feed is no longer watched." if kind == "removed" else f"{label} is read again."
+    return "security_news_feed_recovered", {"label": label, "dest": _feed_key(url), "detail": detail}
+
+
+def _fire_feed_events(events):
+    """Raise the alerts about feeds, after the store is saved: what is fired here is never sent twice, and a failure to send is said and not raised."""
+    for event, payload in events:
+        try:
+            A.fire_webhook(event, payload)
+        except Exception as ex:
+            sys.stderr.write(f"[remotepower] news watch: the alert about a feed could not be raised: {type(ex).__name__}: {ex}\n")
+
+
+def _close_feed_alerts(urls):
+    """Close the open alert of every feed in `urls` (None: of every feed), for a feed that stopped being watched: removed from the list, or the whole watch switched off. A read-only
+    look first, so that a settings change with nothing open costs nothing."""
+    try:
+        st = _store_dict((A._load_ro(A.NEWS_WATCH_FILE) or {}) if A.backend_exists(A.NEWS_WATCH_FILE) else {})
+        fst = st.get("feeds") if isinstance(st.get("feeds"), dict) else {}
+        if not any(isinstance(r, dict) and r.get("fail_alerted") is True and (urls is None or u in urls) for u, r in fst.items()):
+            return
+        events = []
+        with A._LockedUpdate(A.NEWS_WATCH_FILE) as doc:
+            fst = doc.get("feeds") if isinstance(doc.get("feeds"), dict) else {}
+            for u, r in fst.items():
+                if isinstance(r, dict) and r.get("fail_alerted") is True and (urls is None or u in urls):
+                    r["fail_alerted"] = False
+                    events.append(_feed_event("removed", u, r))
+        _fire_feed_events(events)
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] news watch: the alerts about feeds could not be closed: {type(e).__name__}\n")
 
 
 def _why(e):
@@ -210,11 +258,14 @@ def poll_once(now=None, fetch=None):
         return names[:MAX_SOFTWARE], running[:MAX_SOFTWARE]
 
     alerts, scan_wanted, summary = [], False, {"feeds": len(feeds), "failed": 0, "new_critical": 0, "alerts": 0, "scan": None}
+    feed_events = []  # the alerts about the feeds themselves, raised after the store is saved
     with A._LockedUpdate(A.NEWS_WATCH_FILE) as st:
         fst = st.get("feeds")
         if not isinstance(fst, dict):
             fst = st["feeds"] = {}
         for gone in [k for k in fst if k not in feeds]:
+            if _store_dict(fst.get(gone)).get("fail_alerted") is True:
+                feed_events.append(_feed_event("removed", gone, _store_dict(fst.get(gone))))      # its alert is closed with it
             fst.pop(gone)  # a feed taken out of the list loses its record
         listed = [i for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
         have = {i.get("id") for i in listed}
@@ -227,12 +278,18 @@ def poll_once(now=None, fetch=None):
                 prev["last_error"] = got
                 streak = prev.get("fail_streak")
                 prev["fail_streak"] = streak + 1 if isinstance(streak, int) and not isinstance(streak, bool) else 1
+                if prev["fail_streak"] >= FEED_FAIL_STREAK and prev.get("fail_alerted") is not True:
+                    prev["fail_alerted"] = True      # once, on the transition: the next read that works clears it and raises the recovery
+                    feed_events.append(_feed_event("failing", url, prev, prev["fail_streak"]))
                 fst[url] = prev
                 summary["failed"] += 1
                 continue
             was_baselined = prev.get("baselined") is True
             rec, new = N.process(prev, got["items"], now, kev, cfg["critical_words"])
             rec.update(title=got["title"] or str(prev.get("title") or ""), last_try=now, last_ok=now, last_error="", fail_streak=0, last_new=len(new))
+            if prev.get("fail_alerted") is True:
+                feed_events.append(_feed_event("recovered", url, rec))
+            rec["fail_alerted"] = False
             rec["last_critical"] = sum(1 for it in new if it["critical"])
             fst[url] = rec
             label = rec["title"] or urllib.parse.urlsplit(url).hostname or ""
@@ -286,6 +343,7 @@ def poll_once(now=None, fetch=None):
                 A.audit_log("news-watch", "news_watch_scan", f"hosts={hosts} items={len(alerts)}")
             except Exception:
                 pass
+    _fire_feed_events(feed_events)
     for e in alerts:
         payload = {
             "title": e["title"], "url": e["link"], "source": e["feed"], "severity": "high" if e["software"] else "medium",
@@ -495,6 +553,10 @@ def handle_news_watch_config_set():
         if after["enabled"] and (not before["enabled"] or after["feeds"] != before["feeds"]):
             cfg.pop("last_news_watch_run", None)
     hosts = ",".join(sorted({urllib.parse.urlsplit(u).hostname or "" for u in after["feeds"]}))
+    if not after["enabled"]:
+        _close_feed_alerts(None)      # a watch that is off reports nothing, so a feed alert left open would stay for ever
+    elif before["feeds"] != after["feeds"]:
+        _close_feed_alerts(set(before["feeds"]) - set(after["feeds"]))
     A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} words={len(after['words'])} critical_words={len(after['critical_words'])} feeds={hosts}"[:300])
     A.respond(200, dict(_view(int(time.time())), ok=True))
 

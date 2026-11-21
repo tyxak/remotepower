@@ -2474,6 +2474,18 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='A security news feed reports a critical flaw (in software your hosts have installed, unless every critical item was chosen)',
         kind='security_news', title='Critical Security News', severity=None, priority=4, tags='newspaper,rotating_light'),
+    # 8.0.2: a security news feed that keeps failing. A feed that cannot be read is the one failure the watch cannot report in its own alerts: it looks like a quiet week, and
+    # the stream of critical items it exists for has stopped. Raised by the watch after FEED_FAIL_STREAK (news_watch_handlers) reads of one feed that fail in a row (once, on the
+    # transition), through every channel and into the inbox; the first read that works raises the recovery, which closes it by the feed's key (`dest`: the label is for
+    # reading, and two feeds can have one). A feed taken out of the list, and a watch switched off, close theirs too.
+    'security_news_feed_failing': dict(
+        label='A security news feed keeps failing', kind='health',
+        title='Security News Feed Failing', severity='medium',
+        tags='warning,newspaper'),
+    'security_news_feed_recovered': dict(
+        label='A security news feed is read again (or is no longer watched)', kind='health',
+        title='Security News Feed Read', resolves=('security_news_feed_failing',),
+        tags='white_check_mark,newspaper'),
     'container_healthy': dict(
         label='A container passes its health check again (or stopped, or left the list)',
         kind='container', title='Container Healthy',
@@ -11765,6 +11777,8 @@ def _alert_title(event, payload):
         return f'Edge feed down: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'notify_dest_failing':
         return str(p.get('detail') or f'Notification destination failing: {p.get("label", "?")}')[:200]
+    if event == 'security_news_feed_failing':
+        return str(p.get('detail') or f'A security news feed keeps failing: {p.get("label", "?")}')[:200]
     if event == 'ip_reported':
         return f'Threat Intel: {p.get("detail", "addresses reported")}'[:200]
     if event == 'edge_list_held':
@@ -13797,7 +13811,8 @@ def _record_alert(event, payload):
                     # v7.4.3 (#47): the name an operator gave the drive (and `serial`, above), so the
                     # inbox row says which drive and not only which letter.
                     'disk_name',
-                    # 8.0.2: the key of the notification destination a notify_dest_failing alert is about (`wh:<id>`, or `email`). It is in
+                    # 8.0.2: the key of the notification destination a notify_dest_failing alert is about (`wh:<id>`, or `email`), or of the security news feed a
+                    # security_news_feed_failing alert is about (`feed:<hash>`). It is in
                     # _ALERT_IDENTITY_FIELDS, so it has to be STORED too, and the recovery closes the row that holds the same key. The Alerts page
                     # does not print it: it is an identity, not a fact an operator reads.
                     'dest',
@@ -14095,6 +14110,9 @@ def _auto_resolve_alerts(event, payload):
         # v7.3.0: no device_id; one alert per feed (and one for the list), told
         # apart by `label`, which is in _ALERT_IDENTITY_FIELDS and stored.
         sub_match['label'] = p.get('label')
+    elif event == 'security_news_feed_recovered':
+        # 8.0.2: one alert for each feed, told apart by the feed's key (`dest`: "feed:" and twelve hex digits of the address' hash), which is stored with the alert
+        sub_match['dest'] = p.get('dest')
     elif event == 'notify_dest_recovered':
         # 8.0.1 matched these by `label`, the name the operator gave the destination or else scheme://host, and two destinations can share one (two saved
         # without a name on one host, or a webhook named like the mail server, "Email"): the first to deliver again closed the alert of the other, which
