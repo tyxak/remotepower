@@ -40,6 +40,9 @@ EXEMPT = {
     '_enforce_ip_allowlist':
         'it refuses an address, not a session, and its lists are what an address that is not on the allowlist may still reach (the agent '
         'routes): there is no session to end from it',
+    '_enforce_platform_routes':
+        'it refuses a tenant user a request that is on the list of the routes of the platform (a deny list, which does not hold /api/logout, and none of the routes a held session may '
+        'use: the next test holds that), and it does not refuse a request with no signed-in user',
 }
 
 
@@ -140,6 +143,17 @@ class TestEveryGateLetsTheSignOutThrough(unittest.TestCase):
             self.assertTrue(reason.strip(), 'an exemption without a reason: %s' % gate)
             self.assertIn(gate, found, 'the exemption names a gate that reads no list of paths any more: remove it: %s' % gate)
             self.assertFalse(_lets_through(found[gate], LOGOUT), 'the gate lets the sign-out through now: remove the exemption: %s' % gate)
+
+    def test_the_platform_routes_hold_nothing_a_held_session_needs(self):
+        """The reason of the exemption above. _enforce_platform_routes is not a list of what a session may still reach but of what a tenant may not, so the test above cannot read it.
+        What it can be asked is whether any route that a held session is let through to (the sign-out, its account, the password change, the enrolment of a second factor) is on that list."""
+        needed = set(api._PWCHG_ALLOWED_PATHS) | set(api._MFA_ENROLL_ALLOWED_PATHS) | {LOGOUT}
+        self.assertIn(LOGOUT, needed)
+        self.assertGreaterEqual(len(needed), 3, 'the lists of the held sessions were not read')
+        for path in sorted(needed):
+            for method in ('GET', 'POST'):
+                self.assertIsNone(api._platform_route(path, method), '%s %s is a route of the platform: a tenant user whose password has expired could not use it' % (method, path))
+        self.assertEqual(api._platform_route('/api/backup/download', 'GET'), '/api/backup', 'control: a route of the platform is found')
 
     def test_the_route_that_the_lists_name_is_a_real_route(self):
         self.assertIn(('POST', LOGOUT), api._build_exact_routes())
