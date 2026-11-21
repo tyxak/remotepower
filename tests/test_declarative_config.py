@@ -1,6 +1,7 @@
 """v5.8.0 (B3.5): declarative config export — a versioned, secret-redacted
 document of operator-authored resources (read-only in this cut)."""
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -218,10 +219,27 @@ class TestWebhookEncryptedRoundTrip(unittest.TestCase):
                          'https://hooks.slack.com/services/T/B/XYZ')
 
     def test_without_key_stays_lossy(self):
+        # an installation with no master key: the address is saved as it is, and the export keeps the host and nothing more. (This saved the address with a key armed
+        # and then took the key away. Since 8.0.2 the settings seal such an address at rest, so that reads as a key that was lost, which is the next test.)
+        os.environ.pop('RP_CONFIG_KEY', None)
+        api._CFG_DK_CACHE.clear()
+        api.save(api.CONFIG_FILE, {'webhook_urls': [{'label': 'slack', 'url': 'https://hooks.slack.com/services/T/B/XYZ'}]})
+        r = api._build_declarative_config()['resources']
+        self.assertEqual(r['webhook_destinations'][0]['url'], 'https://hooks.slack.com')
+        self.assertFalse(api._declarative_meta()['webhook_destinations'].get('importable'))
+
+    def test_a_key_that_was_lost_exports_nothing_of_the_address(self):
+        """The settings were saved with a key armed, so the address is ciphertext at rest, and the key is gone: it cannot be opened. The document that is meant to be committed holds
+        neither the address, nor the host, nor the ciphertext."""
+        if not api.backup_crypto.available():
+            self.skipTest('cryptography lib not available')
         os.environ.pop('RP_CONFIG_KEY', None)
         api._CFG_DK_CACHE.clear()
         r = api._build_declarative_config()['resources']
-        self.assertEqual(r['webhook_destinations'][0]['url'], 'https://hooks.slack.com')
+        text = json.dumps(r['webhook_destinations'])
+        self.assertEqual(r['webhook_destinations'][0]['url'], '')
+        for leak in ('enc:v', 'slack.com', 'XYZ'):
+            self.assertNotIn(leak, text, leak)
         self.assertFalse(api._declarative_meta()['webhook_destinations'].get('importable'))
 
 
