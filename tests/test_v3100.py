@@ -36,6 +36,17 @@ APP = client_js()
 
 # ─── version bump (strict) ───────────────────────────────────────────────────
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 class TestVersionBumps(unittest.TestCase):
     EXPECTED = '3.10.0'
 

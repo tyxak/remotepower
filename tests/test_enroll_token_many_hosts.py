@@ -33,6 +33,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_v749_enroll_source import _Enrol, api  # noqa: E402
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
 def _new_hosts(before_ids):
     api._LOAD_CACHE.clear()
     devs = api.load(api.DEVICES_FILE) or {}
@@ -563,6 +569,8 @@ class TestTheRoutes(unittest.TestCase):
 def tearDownModule():
     # api._env() reads the request context before os.environ: a context left set here is what the next module's requests would be answered from
     api._RCTX.environ = None
+    import api_guard
+    api_guard.restore(__name__)
 
 
 if __name__ == '__main__':

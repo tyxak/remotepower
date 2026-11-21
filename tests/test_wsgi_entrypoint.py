@@ -25,6 +25,17 @@ except ImportError:
     _HAS_FLASK = False
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 def _maybe(p):
     p = _ROOT / p
     return p.read_text() if p.exists() else None

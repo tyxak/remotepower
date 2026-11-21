@@ -22,6 +22,17 @@ HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 APP = client_js()
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 class TestVersionBumps(unittest.TestCase):
     # v3.9.0: loosened to regex — v3.9.0 now holds the strict pin (test_v390.py).
     def test_versions(self):
