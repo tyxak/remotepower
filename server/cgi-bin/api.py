@@ -8667,12 +8667,33 @@ def _scope_filter_devices(devices, scope=None):
     return _tenant_filter_devices(devices)
 
 
+def _is_exact_route(m, pi):
+    """Whether (method, path) is a route of its own (the table `_dispatch` reads first), as `/api/devices/bulk-tags` is, and not a path with a host id in it."""
+    global _EXACT_ROUTES
+    if _EXACT_ROUTES is None:
+        _EXACT_ROUTES = _build_exact_routes()
+    return (m, pi) in _EXACT_ROUTES or (None, pi) in _EXACT_ROUTES
+
+
+def _host_not_found():
+    """The one answer a tenant user gets for a host id it may not see, whether the host is another tenant's or does not exist. A 403 for the first and the handler's own
+    answer for the second told them apart, so a tenant user could test which host ids exist in another tenant (the ids of imported cloud hosts are the provider's own,
+    `hetzner-<number>`, and can be guessed). docs/api.md has promised the 404 since 6.1.2; the gates answered 403 from 3.14.0 until 8.0.2."""
+    respond(404, {'error': 'Host not found'})
+
+
 def _enforce_device_scope():
     """v3.5.0 RBAC v2: a scoped role must not read or act on a device outside its
-    scope. Applies to any `/api/devices/<id>[/...]` request. Fail-safe: only
-    blocks when the path's first segment is a REAL device that's out of scope —
-    non-device sub-paths and unknown ids fall through to the handler (which 404s),
-    so this never breaks a legitimate route. Admin / all-scope roles pass."""
+    scope. Applies to any `/api/devices/<id>[/...]` request. Fail-safe: a path that
+    is a route of its own (`/api/devices/agentless`, `/api/devices/bulk-tags`, ...)
+    is never read as a host id, and an id that no host has falls through to the
+    handler (which 404s) for every caller but a tenant user, so this never breaks
+    a legitimate route. Admin / all-scope roles pass.
+
+    8.0.2: a tenant user (`_tenant_gate()` names a tenant) gets the same 404 for a host
+    of another tenant and for an id that no host has, on every route under
+    `/api/devices/<id>/`, and before the handler reads the body, so the answer
+    cannot tell the two apart (see `_host_not_found`)."""
     pi = path_info()
     if not pi.startswith('/api/devices/'):
         return
@@ -8681,11 +8702,13 @@ def _enforce_device_scope():
         return
     dev = device_get(seg)
     if dev is None:
+        if _tenant_gate() is not None and not _is_exact_route(method(), pi):
+            _host_not_found()
         return
     # v3.14.0 P2: tenant isolation — checked before role scope, and applies even
     # to tenant admins (whose role scope is None).
     if not _tenant_visible(dev):
-        respond(403, {'error': 'Host belongs to another tenant'})
+        _host_not_found()
     scope = _caller_scope()
     if scope is None:
         return
@@ -8693,15 +8716,21 @@ def _enforce_device_scope():
         respond(403, {'error': 'Host outside your role scope'})
 
 
-def _scope_block_device(dev_id):
+def _scope_block_device(dev_id, strict=False):
     """For per-device read endpoints NOT under /api/devices/ (cmdb, acme,
     patch-report/device, …). 403s only if dev_id names a real out-of-scope
-    device; otherwise returns (so the handler keeps its own 404 behaviour)."""
+    device; otherwise returns (so the handler keeps its own 404 behaviour).
+
+    8.0.2: a host of another tenant answers 404 "Host not found" (see `_host_not_found`). `strict=True` is for a handler whose route carries the
+    host id in its path: an id that no host has answers the same 404 to a caller that is confined to a tenant, so the two cannot be told apart.
+    The default stays for a body or query id, which can be empty, or name no host on purpose (a rule for all hosts), and falls through."""
     dev = device_get(dev_id)
     if dev is None:
+        if strict and _tenant_gate() is not None:
+            _host_not_found()
         return
-    if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation
-        respond(403, {'error': 'Host belongs to another tenant'})
+    if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation (8.0.2: answered as a host that does not exist)
+        _host_not_found()
     scope = _caller_scope()
     if scope is not None and not _device_in_scope(scope, dev):
         respond(403, {'error': 'Host outside your role scope'})
@@ -63938,7 +63967,7 @@ def handle_patch_report():
 def handle_patch_report_device(dev_id):
     """Return detailed patch report for a single device."""
     require_auth()
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
+    _scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Host not found'})

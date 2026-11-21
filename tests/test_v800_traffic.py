@@ -844,10 +844,12 @@ class TestTenants(_Server):
         st, got = self.request('/api/devices/web01/traffic', token='ta')
         self.assertEqual((st, got['state']), (200, 'reporting'))
         st, got = self.request('/api/devices/web02/traffic', token='ta')
-        self.assertEqual((st, got['error']), (403, 'Host belongs to another tenant'), 'the gate every /api/devices/<id>/ route has answers before the handler runs')
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual((st, got['error']), (404, 'Host not found'), 'the gate every /api/devices/<id>/ route has answers before the handler runs')
         self.assertNotIn('9.9.9.2', json.dumps(got))
         st, got = self.request('/api/devices/web01/traffic', token='tb')
-        self.assertEqual(st, 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(st, 404)
         self.assertNotIn('9.9.9.1', json.dumps(got))
 
     def test_the_fleet_view_adds_up_only_the_callers_hosts_and_names_no_other(self):

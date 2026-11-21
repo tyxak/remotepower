@@ -623,7 +623,8 @@ class TestAccepting(_CA):
         self.assertEqual(api.load(api.CONTAINER_AUDIT_ACCEPTS_FILE), {})
         api.path_info = lambda: "/api/devices/devC/container-audit"
         st, d = self.call(api._enforce_device_scope, m="PUT", who="badmin")
-        self.assertEqual(st, 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(st, 404)
 
     def test_what_may_be_accepted(self):
         self.assertEqual(self.accept("devB", "portainer", "no-such-rule")[0], 400)

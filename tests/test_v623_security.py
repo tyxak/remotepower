@@ -74,7 +74,8 @@ class TestLongpollExecCrossTenant(_TenantBase):
         self._as('tenantA')
         cmds = self._exec('devB')
         self.assertNotIn('devB', cmds, 'cross-tenant command must not be queued')
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
 
 
 class TestSysinfoBatchScoped(_TenantBase):
@@ -128,7 +129,8 @@ class TestWolAndSecretsHostMuteScoped(_TenantBase):
             self.api.handle_wol()
         except (self.api.HTTPError, SystemExit):
             pass
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
 
     def test_secrets_host_mute_cross_tenant_blocked(self):
         self._as('tenantA')
@@ -139,7 +141,8 @@ class TestWolAndSecretsHostMuteScoped(_TenantBase):
             self.api.handle_secrets_host_mute()
         except (self.api.HTTPError, SystemExit):
             pass
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
 
 
 class TestBodyDeviceHandlerGaps(_TenantBase):
@@ -170,7 +173,8 @@ class TestBodyDeviceHandlerGaps(_TenantBase):
             self.api.handle_schedule_add()
         except (self.api.HTTPError, SystemExit):
             pass
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
         jobs = self.api.load(self.api.SCHEDULE_FILE) or {}
         self.assertFalse(any(j.get('device_id') == 'devB' for j in jobs.values()),
                          'no schedule may be queued on another tenant host')

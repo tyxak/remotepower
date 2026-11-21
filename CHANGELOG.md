@@ -140,6 +140,17 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   **Held by** `tests/test_v802_key_scope_whole_installation.py`, which reads the log as a limited administrator key, a limited auditor and the two without a scope, with tenant
   isolation on and off, and fails on the old code.
 
+- **A tenant user could tell which host ids another tenant has.** With tenant isolation on, a host of another tenant answered 403 "Host belongs to another tenant", and an id that no
+  host has answered 404, or 200 with nothing in it, so asking for an id and reading the status told a tenant user whether another tenant had it. The ids of hosts that came from a cloud
+  account are the provider's own (`hetzner-<number>`, `digitalocean-<number>`) and can be guessed. The API guide has promised the same 404 for both since 6.1.2. Every route under
+  `/api/devices/<id>/` now answers 404 "Host not found" to a tenant user for both, before the route reads a body, and so do the routes outside it that carry a host id in the path
+  (the CMDB record, the SCAP report and the patch report of a host). Run through the real gate for the 69 routes of that prefix that need no body, none of them answered the two alike
+  before and all do now. A host id in a request body that belongs to another tenant answers the same 404; an id in a body that no host has is still answered by each route in its own
+  words (33 routes read one), which is usually the same 404 and is not guaranteed. The platform operator, and an install with tenant isolation off, are answered by the route as before, and
+  a host of your own tenant that your role may not reach is still 403 "Host outside your role scope". This is in 8.0.0 and earlier (3.14.0 added the 403). **Held by**
+  `tests/test_v802_host_of_another_tenant_is_not_found.py`, which drives the gate on every route and method of the prefix and the routes with the id in the path, and fails on the old
+  code. The 41 assertions in 27 older test modules that expected the 403 for a host of another tenant expect the 404 now.
+
 ### Enrolment and sign-in
 
 - **One enrolment token can enrol many hosts.** Group policy, golden images and autoscaling groups run one install command on many hosts, and a token

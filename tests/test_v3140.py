@@ -2607,7 +2607,8 @@ class TestTenancyP2(_HandlerBase):
     def test_cross_tenant_single_device_blocked(self):
         self._enforce(); self._as('acmeadmin')
         self.call(api._scope_block_device, 'd1')    # default-tenant device
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
 
     def test_own_tenant_device_not_blocked(self):
         self._enforce(); self._as('acmeadmin')
@@ -2619,7 +2620,8 @@ class TestTenancyP2(_HandlerBase):
         self._enforce(); self._as('acmeadmin')
         api.path_info = lambda: '/api/devices/d1/reboot'
         self.call(api._enforce_device_scope)
-        self.assertEqual(self.cap.get('s'), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404)
 
     # ── tenant assignment is superadmin-only ─────────────────────────────────
     def test_tenant_reassign_requires_superadmin(self):

@@ -323,8 +323,10 @@ class TestWhoMayAcceptAHost(_Cve):
     def test_a_tenant_administrator_accepts_the_hosts_of_the_tenant_and_no_others(self):
         self.tenancy()
         st, got = self.accept('web01', token='b')
-        self.assertEqual((st, got), (403, {'error': 'Host belongs to another tenant'}), 'web01 is the operator\'s: the answer every device route gives another organisation')
-        self.assertEqual(self.unaccept('web01', token='b')[0], 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual((st, got), (404, {'error': 'Host not found'}), 'web01 is the operator\'s: the answer every device route gives another organisation')
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.unaccept('web01', token='b')[0], 404)
         self.assertEqual(self.store(), {})
         st, got = self.accept('web02', token='b')
         self.assertEqual((st, got['accepted']), (200, 2))
@@ -339,7 +341,8 @@ class TestWhoMayAcceptAHost(_Cve):
         self.tenancy()
         for fn, name in ((self.api.handle_cve_host_accept, 'accept'), (self.api.handle_cve_host_unaccept, 'unaccept')):
             st, got = _run(self.api, lambda: fn('web01'), {}, method='POST', env={'HTTP_AUTHORIZATION': 'Bearer b'})
-            self.assertEqual((st, got), (403, {'error': 'Host belongs to another tenant'}), name)
+            # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+            self.assertEqual((st, got), (404, {'error': 'Host not found'}), name)
         self.assertEqual(self.store(), {})
         st, got = _run(self.api, lambda: self.api.handle_cve_host_accept('web02'), {}, method='POST', env={'HTTP_AUTHORIZATION': 'Bearer b'})
         self.assertEqual(st, 200, 'control: its own host')

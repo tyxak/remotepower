@@ -766,7 +766,8 @@ class TestAsking(_PP):
         self.assertIn("'/api/devices/', '/patch-preview', 'handle_device_patch_preview'", src)
         api.path_info = lambda: "/api/devices/devC/patch-preview"
         st, d = self.call(api._enforce_device_scope, m="POST", who="badmin")
-        self.assertEqual(st, 403, "tenant B's administrator is turned away from tenant C's host before the handler runs")
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(st, 404, "tenant B's administrator is turned away from tenant C's host before the handler runs")
 
 
 class TestReading(_PP):

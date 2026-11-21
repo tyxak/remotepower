@@ -1466,7 +1466,8 @@ class TestAHostOutsideTheCallersTenant(unittest.TestCase):
         return None
 
     def test_a_tenant_admin_is_stopped_at_another_tenants_host_and_not_at_its_own(self):
-        self.assertEqual(self.gate("devB"), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.gate("devB"), 404)
         self.assertIsNone(self.gate("devA"))
 
 

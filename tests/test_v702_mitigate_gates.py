@@ -155,14 +155,16 @@ class TestMitigateTenantGate(_TenantBase):
     def test_fix_cross_tenant_refused_and_queues_nothing(self):
         self.set_body(_FIX_BODY)
         status, body = self.call(api.handle_mitigate_fix, "devB")
-        self.assertEqual(status, 403)
-        self.assertIn("tenant", (body or {}).get("error", "").lower())
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(status, 404)
+        self.assertEqual((body or {}).get("error"), "Host not found")
         self.assertEqual(self.queued("devB"), [])
 
     def test_investigate_cross_tenant_refused_and_queues_nothing(self):
         self.set_body({"kind": "service_down", "target": "nginx"})
         status, _ = self.call(api.handle_mitigate_investigate, "devB")
-        self.assertEqual(status, 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(status, 404)
         self.assertEqual(self.queued("devB"), [])
 
     def test_fix_same_tenant_still_queues(self):

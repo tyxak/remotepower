@@ -749,8 +749,9 @@ class TestWhoMaySeeThem(unittest.TestCase):
         for user, role in (("badmin", "admin"), ("bview", "viewer")):
             with self.subTest(user=user):
                 status, body = self.gate("/api/devices/winC/sysinfo", user, role)
-                self.assertEqual(status, 403)
-                self.assertIn("another tenant", body["error"])
+                # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+                self.assertEqual(status, 404)
+                self.assertEqual(body["error"], "Host not found")
                 self.assertEqual(self.gate("/api/devices/winB/sysinfo", user, role), (None, None))
         self.assertEqual(self.gate("/api/devices/winC/sysinfo", "platform", "admin"), (None, None))
 

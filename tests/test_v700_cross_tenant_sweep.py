@@ -118,7 +118,8 @@ class TestInboundWebhookPin(_Base):
                              body={'label': 'x', 'scope_device_id': 'devB'})
         # _scope_block_device answers 403 here; the point is that the pin is
         # refused and not stored, not which of the two codes it picks.
-        self.assertEqual(st, 403, f'expected a refusal, got {st} {data}')
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(st, 404, f'expected a refusal, got {st} {data}')
 
     def test_a_superadmin_still_can(self):
         self.as_superadmin()

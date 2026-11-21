@@ -145,7 +145,8 @@ class TestInheritedCredentialsIsolation(_TenantBase):
     def test_cross_tenant_device_blocked(self):
         self._as('tenantA')
         self._run('devB')
-        self.assertEqual(self.cap.get('s'), 403,
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap.get('s'), 404,
                          'tenant admin must be blocked from another tenant device')
 
     def test_own_device_allowed(self):

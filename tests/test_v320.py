@@ -628,7 +628,8 @@ class TestMcpWriteTools(_ApiTestBase):
         os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
         os.environ['HTTP_X_MCP_PROMPT'] = 'test'
         r = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-auto'})
-        self.assertEqual(r['status'], 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(r['status'], 404)
         cmds = self.api.load(self.api.CMDS_FILE)
         self.assertNotIn('reboot', cmds.get('d-auto', []))
 

@@ -127,7 +127,8 @@ class TestCrossTenantReachIsClosed(_HandlerCase):
     def test_cannot_accept_a_risk_on_another_tenants_host(self):
         status, _ = self.call(api.handle_cve_ignore_add,
                               body={'vuln_id': 'CVE-1', 'scope': 'devB'})
-        self.assertEqual(status, 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(status, 404)
         self.assertNotIn('CVE-1', self.store())
 
     def test_a_global_record_is_stamped_with_the_writers_tenant(self):

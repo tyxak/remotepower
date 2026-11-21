@@ -548,7 +548,8 @@ class TestThePagesAreHandedIt(_Fleet):
         # a host of another tenant is refused before the handler runs, as main() does, and says nothing of its packages
         for caller in (self.as_tenant_admin, self.as_read_only):
             status, view = self.gated(caller, self.WIN)
-            self.assertEqual(status, 403, view)
+            # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+            self.assertEqual(status, 404, view)
             self.assertNotIn('covered', view)
             self.assertNotIn('packages_count', view)
         status, view = self.gated(self.as_tenant_admin, self.DEB_OLD)

@@ -179,7 +179,8 @@ class TestWhoMayDoWhat(_Route):
                 api._enforce_device_scope()
         finally:
             api.path_info, api._tenant_visible, api.respond = real
-        self.assertEqual(seen["status"], 403, "a host outside the caller's tenant is refused before the handler")
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(seen["status"], 404, "a host outside the caller's tenant is refused before the handler")
 
     def test_a_body_cannot_set_the_switch_through_the_other_routes(self):
         """The generic device update takes a fixed set of fields. This one is not among them."""

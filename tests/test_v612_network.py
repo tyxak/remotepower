@@ -510,7 +510,8 @@ class TestNewEndpointPermissions(unittest.TestCase):
         self.api.path_info = lambda: '/api/devices/d1/docker/prune'
         self.assertEqual(self._status(self.api._enforce_device_scope), 200)
         self.api.path_info = lambda: '/api/devices/d2/docker/prune'
-        self.assertEqual(self._status(self.api._enforce_device_scope), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self._status(self.api._enforce_device_scope), 404)
 
     # ── the ping endpoint must survive the IP allowlist ──────────────────────
     def test_ping_path_is_exempt_from_the_ip_allowlist(self):

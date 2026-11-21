@@ -477,7 +477,8 @@ class TestTheHostsOwnLine(_Res):
                 api._enforce_device_scope()
         finally:
             api.path_info, api._tenant_visible, api.respond = real
-        self.assertEqual(seen["status"], 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(seen["status"], 404)
 
     def test_a_deleted_host_takes_its_line_with_it(self):
         self.put({"thresholds": {"cpu_pct": 200}})

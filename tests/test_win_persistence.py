@@ -1640,7 +1640,8 @@ class TestThePageOfAHost(_Server):
         self.cap.clear()
         with self.assertRaises(api.HTTPError):
             api._enforce_device_scope()
-        self.assertEqual((self.cap['status'], self.cap['data']['error']), (403, 'Host belongs to another tenant'), 'a tenant administrator of tenant B is refused host win1 before the handler runs')
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual((self.cap['status'], self.cap['data']['error']), (404, 'Host not found'), 'a tenant administrator of tenant B is refused host win1 before the handler runs')
         self.who = 'viewer1'
         api.path_info = lambda: '/api/devices/win1/persistence'
         self.assertIsNone(api._enforce_device_scope())
@@ -1649,7 +1650,8 @@ class TestThePageOfAHost(_Server):
         self.cap.clear()
         with self.assertRaises(api.HTTPError):
             api._enforce_device_scope()
-        self.assertEqual(self.cap['status'], 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.cap['status'], 404)
 
     def test_nobody_signed_out_reads_it_and_there_is_nothing_to_write(self):
         st, d = self.call(api.handle_device_persistence, 'win1', who=None)

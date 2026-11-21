@@ -363,8 +363,13 @@ class TestSecretsStayHidden(unittest.TestCase):
                 self.assertIn(f, seg)
 
     def test_the_secret_walker_still_covers_cloud_accounts(self):
-        src = (_CGI / "api.py").read_text()
-        self.assertIn("_hit(_ca, 'secret_key')", src)
+        # 8.0.2 (469b7e90): the walker that the exports and the sealing of the settings share is `_nonname_config_secret_sites`, and this pin looked for the text
+        # of the loop that used to hold it. The account's secret_key is read from that list, and the redaction that the exports use is run on an account.
+        cfg = {"cloud_accounts": [{"label": "prod", "secret_key": "AKIAEXAMPLEKEY", "tenant_id": "t-1"}]}
+        sites = api._nonname_config_secret_sites(cfg)
+        self.assertTrue(any(c is cfg["cloud_accounts"][0] and k == "secret_key" for c, k, _m, _u in sites), "the secret_key of a cloud account is not on the list")
+        api._redact_nonname_config_secrets(cfg, mask=False)
+        self.assertEqual(cfg["cloud_accounts"][0], {"label": "prod", "tenant_id": "t-1"}, "the export keeps the identifiers of an account and drops its secret")
 
 
 if __name__ == "__main__":

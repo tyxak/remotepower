@@ -207,7 +207,7 @@ def handle_scap_report_ticket(dev_id):
     A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid host id'}); return
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not (A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz').exists():
         A.respond(404, {'error': 'no report on file for this host'}); return
     A.respond(200, {'url': f'/api/scap/{dev_id}/report?ticket={scap_ticket_make(dev_id)}', 'expires_in': SCAP_TICKET_TTL})
@@ -227,7 +227,7 @@ def handle_scap_report_download(dev_id):
             A.respond(403, {'error': 'Invalid or expired report link'}); return
     else:
         A.require_auth()
-        A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
+        A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device read scope
     path = A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz'
     if not path.exists():
         A.respond(404, {'error': 'no report on file for this host'}); return

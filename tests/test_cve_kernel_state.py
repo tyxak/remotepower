@@ -1044,10 +1044,12 @@ class TestTheReadersOfTheNewStatus(_Fleet):
         # the other tenant's administrator is refused before the handler, and learns nothing of the kernel
         for user in (('bruno', 'admin'),):
             status, view = self.gated(user, self.HOST)
-            self.assertEqual(status, 403, view)
+            # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+            self.assertEqual(status, 404, view)
             self.assertNotIn('kernel', view)
         status, view = self.gated(('alice', 'admin'), self.OTHER)
-        self.assertEqual(status, 403, view)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(status, 404, view)
 
     def test_a_host_never_scanned_has_no_kernel_block_in_its_view(self):
         status, view = self.get(api.handle_cve_device, self.OTHER)

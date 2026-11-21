@@ -414,7 +414,7 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
     # any other tenant's device: reproduced, HTTP 200, password returned.
     # The vault is instance-wide, so any admin entitled to unlock it for
     # their OWN credentials could read everyone's.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
@@ -506,7 +506,7 @@ def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
     # any other tenant's device: reproduced, HTTP 200, password returned.
     # The vault is instance-wide, so any admin entitled to unlock it for
     # their OWN credentials could read everyone's.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -539,7 +539,7 @@ def handle_cmdb_credentials_list(dev_id: str) -> None:
         dev_id: The enrolled device's ID.
     """
     A.require_auth()
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
     devices = A.load(A.DEVICES_FILE)
@@ -581,7 +581,7 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     # any other tenant's device: reproduced, HTTP 200, password returned.
     # The vault is instance-wide, so any admin entitled to unlock it for
     # their OWN credentials could read everyone's.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -685,7 +685,7 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
     # any other tenant's device: reproduced, HTTP 200, password returned.
     # The vault is instance-wide, so any admin entitled to unlock it for
     # their OWN credentials could read everyone's.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -773,7 +773,7 @@ def handle_cmdb_doc_add(dev_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
@@ -823,7 +823,7 @@ def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
@@ -870,7 +870,7 @@ def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
@@ -934,7 +934,7 @@ def handle_cmdb_get(dev_id: str) -> None:
         device is unknown.
     """
     A.require_auth()
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
     devices = A.load(A.DEVICES_FILE)
@@ -1092,7 +1092,7 @@ def handle_cmdb_update(dev_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
@@ -1596,7 +1596,7 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
     # read its inherited-credential metadata. _scope_block_device enforces the
     # tenant gate AND role scope (route is under /api/cmdb/, not covered by
     # _enforce_device_scope).
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     # v7.0.2 (SECURITY): the DEVICE is tenant-gated above; the CREDENTIALS were
     # not. `_caller_scope_covers_credential` is an RBAC-scope check, and a tenant
     # admin resolves to scope None, so it passes for everything — meaning a

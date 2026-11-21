@@ -255,7 +255,8 @@ class TestWithTenancy(unittest.TestCase):
         self.assertEqual(o["adminA_own_host"][0], 202)
         self.assertEqual(o["adminA_own_host"][1]["total"], 1)
         self.assertEqual(o["spawned_for_own_host"], ["adminA", "a1"])
-        self.assertEqual(o["adminA_foreign_host"], 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(o["adminA_foreign_host"], 404)
 
     def test_the_operators_scan_covers_every_host_and_is_not_held_back(self):
         o = self.o

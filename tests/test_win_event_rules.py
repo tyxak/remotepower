@@ -1105,7 +1105,8 @@ class TestRulesOnEventUnits(_Server):
         self.cap.clear()
         with self.assertRaises(api.HTTPError):
             api._enforce_device_scope()
-        self.assertEqual((self.cap['status'], self.cap['data']['error']), (403, 'Host belongs to another tenant'))
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual((self.cap['status'], self.cap['data']['error']), (404, 'Host not found'))
         api.path_info = lambda: '/api/devices/winB/services/config'
         self.assertIsNone(api._enforce_device_scope())
 

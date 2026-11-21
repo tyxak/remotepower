@@ -134,7 +134,8 @@ class TestChangesKeepToTheTenant(_Base):
                      {'category': 'needs_attention', 'key': 'na-new', 'device_id': 'devB'}):
             before = self._store()
             status, _ = self._call(self.api.handle_ignored_add, 'POST', body)
-            self.assertEqual(status, 403, body)
+            # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+            self.assertEqual(status, 404, body)
             self.assertEqual(self._store(), before, 'nothing was stored for ' + body['category'])
 
     def test_hiding_its_own_host_still_works(self):
@@ -148,7 +149,8 @@ class TestChangesKeepToTheTenant(_Base):
     def test_lifting_another_tenants_entry_is_refused(self):
         self._as('tenantA')
         status, _ = self._call(self.api.handle_ignored_remove, 'POST', {'category': 'devices', 'id': 'devB'})
-        self.assertEqual(status, 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(status, 404)
         self.assertIn('devB', [e['id'] for e in self._store()['devices']])
 
     def test_lifting_by_key_leaves_another_tenants_entry(self):

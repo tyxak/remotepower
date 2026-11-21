@@ -79,9 +79,12 @@ class TestTheTenantBoundary(_TwoTenants):
 
     def test_a_tenant_administrator_reaches_the_tenants_own_host_and_no_other(self):
         self.assertEqual(self.gate("tadmin", "hostA"), 200)
-        self.assertEqual(self.gate("tadmin", "hostB"), 403)
-        self.assertEqual(self.gate("tadmin", "hostB", "GET"), 403)
-        self.assertEqual(self.gate("tviewer", "hostB", "GET"), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.gate("tadmin", "hostB"), 404)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.gate("tadmin", "hostB", "GET"), 404)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.gate("tviewer", "hostB", "GET"), 404)
         self.assertEqual(self.gate("alice", "hostB"), 200, "the platform operator reaches both")
 
     def test_the_exposure_answer_shows_a_tenant_its_own_hosts_only(self):
@@ -102,7 +105,8 @@ class TestTheTenantBoundary(_TwoTenants):
         """The gate is what refuses it, and the handler is not reached. A direct call, which skips the gate,
         shows what the gate is for: the handler itself does not look at tenants."""
         before = json.dumps(api.load(api.DEVICES_FILE)["hostB"], sort_keys=True)
-        self.assertEqual(self.gate("tadmin", "hostB"), 403)
+        # 8.0.2: a host of another tenant is answered as a host that does not exist (404 "Host not found"), not 403 (tests/test_v802_host_of_another_tenant_is_not_found.py)
+        self.assertEqual(self.gate("tadmin", "hostB"), 404)
         self.assertEqual(json.dumps(api.load(api.DEVICES_FILE)["hostB"], sort_keys=True), before)
 
 
