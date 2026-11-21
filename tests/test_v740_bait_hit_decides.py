@@ -19,8 +19,13 @@ import ip_intel_handlers as ih  # noqa: E402
 import threat_evidence as te  # noqa: E402
 
 
-def _hit(kind, ip='45.148.10.201', action='recorded'):
-    return {'kind': kind, 'ip': ip, 'action': action, 'at': 1_700_000_000}
+def _hit(kind, ip='45.148.10.201', action='recorded', v=ee.SCRIPT_VERSION):
+    # A line from a Worker script that says how the request was made (`v`, version 2). Only such a line can be a decision on one hit: trap_events counts a line without it as one
+    # attempt, because nothing in it tells a visitor's own request from one a page caused (8.0.1, 5bf0f40e; test_v740_planted_decides sends the version the same way).
+    hit = {'kind': kind, 'ip': ip, 'action': action, 'at': 1_700_000_000}
+    if v is not None:
+        hit['v'] = v
+    return hit
 
 
 def _qualifies(hits, decided):
@@ -42,6 +47,17 @@ class TestBaitHit(unittest.TestCase):
         ok, why = _qualifies([_hit('bait')], ())
         self.assertFalse(ok)
         self.assertIn('of 10', why)
+
+    def test_a_hit_from_a_script_that_does_not_say_how_the_request_was_made_is_one_attempt(self):
+        # no `v` at all (a script from before version 2), and a version below the one that says it: both are one attempt, whatever the kind and the setting
+        for v in (None, ee.SCRIPT_VERSION - 1):
+            for kind in ee.BAIT_TOKENS:
+                with self.subTest(v=v, kind=kind):
+                    ok, why = _qualifies([_hit(kind, v=v)], ee.BAIT_TOKENS)
+                    self.assertFalse(ok)
+                    self.assertIn('of 10', why)
+        _events, stats = ee.trap_events([_hit('bait', v=None)], 1_700_000_100, decided_tokens=ee.BAIT_TOKENS)
+        self.assertEqual(stats['older'], 1, 'the page is told that a script that does not say how the request was made is still in use')
 
     def test_a_wordpress_probe_is_decided_too(self):
         for kind in ('wpprobe', 'wpenum', 'decoy', 'gitdump'):
