@@ -26,6 +26,17 @@ I18N = (ROOT / "server/html/static/js/i18n.js").read_text()
 LANGS = ("zh", "hi", "es", "ar", "de", "fr")
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 class TestSave(_SaveBase):
     def test_a_value_persists(self):
         cfg = self._save({"nic_drop_alert_min": 500})
