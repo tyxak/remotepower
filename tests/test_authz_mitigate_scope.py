@@ -36,6 +36,17 @@ import api  # noqa: E402
 NOW = int(time.time())
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 class _Base(unittest.TestCase):
     """Point api.py's flat-file paths at a fresh tmp dir and stub the auth/IO
     helpers so a chosen identity is 'logged in'. Originals are restored in

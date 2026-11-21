@@ -43,6 +43,9 @@ def setUpModule():
     module and put none of them back, so the next module in the same process read the stubs: tests.test_v702_binding failed with
     'root' != 'admin' when it ran after this one (found in the 7.5.0 sweep). Whatever was a function when this module started is a
     function again when it ends."""
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
     import importlib
     import env_guard      # the tests directory is on sys.path (above); REQUEST_METHOD is written by a test below and put back by tearDownModule
     env_guard.save(__name__)
@@ -59,6 +62,8 @@ def tearDownModule():
         if vars(api).get(n) is not v:
             setattr(api, n, v)
     _API_BEFORE.clear()
+    import api_guard
+    api_guard.restore(__name__)
 
 
 class TestVersionBumps(unittest.TestCase):
