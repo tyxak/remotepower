@@ -93,5 +93,27 @@ class TestApiGuard(unittest.TestCase):
         self.assertEqual(a.LABEL, 'real')
 
 
+    def test_the_storage_module_of_the_process_is_guarded_with_api(self):
+        fake_api, fake_storage = a_module(), types.ModuleType('storage')
+        fake_storage.DATA_DIR = Path('/data')
+        fake_storage._ATEXIT_REGISTERED = False
+        had = {n: sys.modules.get(n) for n in ('api', 'storage')}
+        sys.modules['api'], sys.modules['storage'] = fake_api, fake_storage
+        try:
+            api_guard.save('m')
+            fake_api.LABEL = 'changed'
+            fake_storage.DATA_DIR = Path('/tmp/another/dir')
+            fake_storage._ATEXIT_REGISTERED = True
+            self.assertEqual(sorted(api_guard.restore('m')), ['DATA_DIR', 'LABEL'])
+            self.assertEqual((fake_api.LABEL, fake_storage.DATA_DIR), ('real', Path('/data')))
+            self.assertIs(fake_storage._ATEXIT_REGISTERED, True, 'the flag that says the handler of atexit was registered is not cleared: it would be registered twice')
+        finally:
+            for n, m in had.items():
+                if m is None:
+                    sys.modules.pop(n, None)
+                else:
+                    sys.modules[n] = m
+
+
 if __name__ == '__main__':
     unittest.main()

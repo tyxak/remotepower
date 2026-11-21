@@ -21,6 +21,12 @@ sys.path.insert(0, str(CGI))
 import storage        # noqa: E402
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
 def _fresh_api(backend=None):
     d = tempfile.mkdtemp(prefix='rp-v612-perf3-')
     os.environ['RP_DATA_DIR'] = d
@@ -418,3 +424,5 @@ def tearDownModule():
         os.environ.pop("RP_STORAGE_BACKEND", None)
     else:
         os.environ["RP_STORAGE_BACKEND"] = _PRIOR_STORAGE_BACKEND
+    import api_guard
+    api_guard.restore(__name__)

@@ -63,12 +63,20 @@ import sanitize  # noqa: E402
 _ORIG_ENV = {k: os.environ.get(k) for k in ('RP_STORAGE_BACKEND', 'RP_DATA_DIR')}
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
 def tearDownModule():
     for k, v in _ORIG_ENV.items():
         if v is None:
             os.environ.pop(k, None)
         else:
             os.environ[k] = v
+    import api_guard
+    api_guard.restore(__name__)
 
 
 def _fresh_api(backend=None):

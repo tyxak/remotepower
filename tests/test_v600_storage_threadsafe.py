@@ -19,6 +19,17 @@ sys.path.insert(0, str(_CGI))
 import storage  # noqa: E402
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    import api_guard
+    api_guard.save(__name__)
+
+
+def tearDownModule():
+    import api_guard
+    api_guard.restore(__name__)
+
+
 class TestStorageThreadSafe(unittest.TestCase):
     def test_concurrent_save_load_across_threads(self):
         d = tempfile.mkdtemp(prefix="rp-ts-")
