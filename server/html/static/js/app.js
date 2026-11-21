@@ -10766,7 +10766,7 @@ function _clockPref() {
 // call it always was.
 function _fmtDateText(d, kind, opts, tag) {
   const order = _dateOrder(), clock = _clockPref();
-  if ((order !== 'auto' || clock !== 'auto') && d.getTime() === d.getTime()
+  if ((order !== 'auto' || clock !== 'auto') && !Number.isNaN(d.getTime())
       && typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
     try { return _fmtDateTextPrefs(d, kind, opts, tag, order, clock); }
     catch (_) { /* an engine that refuses the combination: the language's own form below */ }
@@ -10888,7 +10888,7 @@ function _dateInOrder(parts, order, plain) {
 // same day is written in that order in the language's own digits and separators.
 function _fmtIsoDay(ts) {
   const d = new Date(Number(ts) * 1000);
-  if (d.getTime() !== d.getTime()) return '';
+  if (Number.isNaN(d.getTime())) return '';
   if (_dateOrder() === 'auto') return d.toISOString().slice(0, 10);
   return _fmtDateText(d, 'date', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'UTC' }, _localeTag());
 }
