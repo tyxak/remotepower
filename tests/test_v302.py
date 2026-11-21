@@ -806,10 +806,12 @@ class TestSuppressionLogParity(_ApiTestBase):
 
     def test_suppression_logs_against_multi_when_no_legacy(self):
         # Configure ONLY multi (no legacy webhook_url) and disable an event
+        # The destination is named by its host: since bb019dc3 (8.0.2) the log keeps the host of an address and not its path, which is where a Discord, Slack or Teams
+        # address carries its secret. So the entry is found by the host, and the path must not be in the log at all.
         self.api.save(self.api.CONFIG_FILE, {
             'webhook_url': '',
             'webhook_urls': [{
-                'id': 'wh_multi', 'url': 'https://example.com/multi',
+                'id': 'wh_multi', 'url': 'https://hooks.multi.example/api/webhooks/1234/SECRETTOKEN',
                 'format': 'discord', 'enabled': True,
             }],
             'webhook_events': {'patch_alert': False},
@@ -821,9 +823,11 @@ class TestSuppressionLogParity(_ApiTestBase):
         entries = wl.get('entries') or []
         self.assertTrue(any(
             e.get('event') == 'patch_alert' and e.get('status') == 'disabled'
-            and 'example.com/multi' in e.get('url', '')
+            and e.get('url') == 'https://hooks.multi.example'
             for e in entries
-        ), 'suppression log must record against the multi-webhook URL when no legacy is set')
+        ), 'suppression log must record against the multi-webhook destination (its host) when no legacy is set')
+        self.assertNotIn('SECRETTOKEN', json.dumps(wl), 'the secret path of the address is not in the log')
+        self.assertNotIn('/api/webhooks', json.dumps(wl), 'nor is any of its path')
 
     def test_no_log_when_no_destinations_at_all(self):
         # No legacy, no multi — silent is correct (nothing to attribute to)
