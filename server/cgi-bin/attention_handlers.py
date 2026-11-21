@@ -216,7 +216,7 @@ def handle_ignored_add():
     # v7.4.0: a host id in the body must be one this caller can see.
     _did = str(body.get('id') if cat == 'devices' else body.get('device_id') or '')
     if _did:
-        A._scope_block_device(_did)
+        A._scope_block_device(_did, strict=True)
     now  = int(A.time.time())
     with A._LockedUpdate(A.IGNORED_ITEMS_FILE) as data:
         for k in ('needs_attention', 'stale_containers', 'devices'):
@@ -305,7 +305,7 @@ def handle_ignored_remove():
         A.respond(400, {'error': 'invalid category'}); return
     _did = str(body.get('id') if cat == 'devices' else body.get('device_id') or '')
     if _did:
-        A._scope_block_device(_did)
+        A._scope_block_device(_did, strict=True)
     ok = _ignored_visible()
     with A._LockedUpdate(A.IGNORED_ITEMS_FILE) as data:
         for k in ('needs_attention', 'stale_containers', 'devices'):

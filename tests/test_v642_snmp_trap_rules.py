@@ -190,7 +190,7 @@ class _Base(unittest.TestCase):
         api.require_admin_auth = lambda: "jakob"
         api.audit_log = lambda *a, **k: None
         api._log_inbound = lambda *a, **k: None
-        api._scope_block_device = lambda d: None
+        api._scope_block_device = lambda d, strict=False: None
         api.fire_webhook = lambda ev, p=None, **k: self.fired.append((ev, p or {}))
 
         def _resp(s, b=None):
@@ -253,7 +253,7 @@ class TestCrud(_Base):
 
     def test_a_scoped_rule_is_scope_checked(self):
         blocked = []
-        api._scope_block_device = lambda d: blocked.append(d)
+        api._scope_block_device = lambda d, strict=False: blocked.append(d)
         self.create(device_id="d1")
         self.assertEqual(blocked, ["d1"])
 

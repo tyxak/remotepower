@@ -229,7 +229,8 @@ def handle_tickets():
     devices = A._scope_filter_devices(_all_devices)
     # 7.4.9: a ticket belongs to the tenant of its host, so naming a host the caller cannot see would put the ticket in another
     # tenant's list. An id that matches no host at all (a host that was removed) is kept as it always was.
-    if device_id and device_id in _all_devices and device_id not in devices:
+    # 8.0.2: except for a caller confined to a tenant: for them an id no host has answers like a host of another tenant, or the two could be told apart.
+    if device_id and device_id not in devices and (device_id in _all_devices or A._tenant_gate() is not None):
         A.respond(404, {'error': 'Host not found'})
     dev_name = (devices.get(device_id) or {}).get('name', '') if device_id else ''
     alertid = ''

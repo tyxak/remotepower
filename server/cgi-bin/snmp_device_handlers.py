@@ -492,7 +492,7 @@ def handle_snmp_trap_rules():
         A.respond(405, {'error': 'Method not allowed'})
     rule = _clean_trap_rule(A.get_json_obj())
     if rule['device_id']:
-        A._scope_block_device(rule['device_id'])
+        A._scope_block_device(rule['device_id'], strict=True)
     with A._LockedUpdate(A.SNMP_TRAP_RULES_FILE) as st:
         rules = st.get('rules')
         if not isinstance(rules, list):
@@ -522,7 +522,7 @@ def handle_snmp_trap_rule(rule_id):
         A.respond(405, {'error': 'Method not allowed'})
     rule = _clean_trap_rule(A.get_json_obj(), existing_id=rule_id)
     if rule['device_id']:
-        A._scope_block_device(rule['device_id'])
+        A._scope_block_device(rule['device_id'], strict=True)
     with A._LockedUpdate(A.SNMP_TRAP_RULES_FILE) as st:
         rules = st.get('rules') or []
         for i, r in enumerate(rules):
@@ -558,7 +558,7 @@ def handle_snmp_trap_rule_test():
     # exact shape that has produced cross-tenant HIGHs four times in this
     # codebase.
     if dev:
-        A._scope_block_device(dev)
+        A._scope_block_device(dev, strict=True)
     import snmp as snmp_mod          # sibling module; api.py imports it lazily too
     rule = A._snmp_trap_rule_match(oid, val, dev, _trap_rules_load())
     A.respond(200, {

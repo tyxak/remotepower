@@ -637,7 +637,8 @@ class TestV342RBACv2(unittest.TestCase):
                    'handle_cmdb_credentials_list', 'handle_acme_detail'):
             self.assertIn('_scope_block_device(', py_function(self.API, fn), fn)
         # health-history per-device series gated
-        self.assertIn('_scope_block_device(dev_id)',
+        # 8.0.2: strict, so a tenant user cannot tell an id no host has from a host of another tenant (tests/test_v802_body_host_ids_alike.py)
+        self.assertIn('_scope_block_device(dev_id, strict=True)',
                       py_function(self.API, 'handle_fleet_health_history'))
 
     def test_aggregates_scoped(self):

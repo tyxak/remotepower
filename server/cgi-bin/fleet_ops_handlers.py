@@ -785,7 +785,7 @@ def handle_logs_export():
 
     devices = A._visible_devices()          # SEC: role scope AND tenant
     if device:
-        A._scope_block_device(device)       # SEC: 403 a real out-of-scope id
+        A._scope_block_device(device, strict=True)       # SEC: 403 a real out-of-scope id
         if device not in devices:
             A.respond(404, {'error': 'Host not found'})
         targets = [device]

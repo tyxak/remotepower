@@ -2295,7 +2295,7 @@ def _block_target():
     ip = ip_intel.parse_ip(body.get('ip'))
     if not A._validate_id(dev_id) or not ip:
         A.respond(400, {'error': 'device_id and a valid ip are required'})
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     return body, dev_id, ip
 
 

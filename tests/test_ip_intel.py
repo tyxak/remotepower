@@ -462,7 +462,7 @@ class TestEndpoints(_Case):
 
     def test_block_endpoints_authenticate_before_touching_the_store(self):
         seen = []
-        self.api._scope_block_device = lambda d: seen.append(d)
+        self.api._scope_block_device = lambda d, strict=False: seen.append(d)
         self.api.verify_token = lambda _t=None: (None, None)
         self.api.method = lambda: 'POST'
         self.api.get_json_obj = lambda: {'device_id': 'd1', 'ip': ATTACKER}

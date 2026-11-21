@@ -105,7 +105,7 @@ class TestAgentConsoleCommandsRun(unittest.TestCase):
                       ("respond", "method", "get_json_body", "require_admin_auth",
                        "_scope_block_device", "_check_exec_allowlist", "audit_log")}
         api.require_admin_auth = lambda: "jakob"
-        api._scope_block_device = lambda d: None
+        api._scope_block_device = lambda d, strict=False: None
         api._check_exec_allowlist = lambda d, c, dv: (True, "")
         api.audit_log = lambda *a, **k: None
         api.method = lambda: "POST"

@@ -917,7 +917,7 @@ def handle_backup_job_archives(job_id):
         A.respond(400, {'error': 'this job targets multiple hosts — specify device_id'})
     if dev_id not in targets:
         A.respond(400, {'error': 'host is not one of this job\'s targets'})
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     ok, err = A.filebackup_mod.validate_spec(job['spec'])
     if not ok:
         A.respond(400, {'error': f'file-backup spec no longer valid: {err}'})
@@ -971,7 +971,7 @@ def handle_backup_job_restore(job_id):
         A.respond(400, {'error': 'this job targets multiple hosts — specify device_id to restore to'})
     if dev_id not in job_targets:
         A.respond(400, {'error': 'host is not one of this job\'s targets'})
-    A._scope_block_device(dev_id)   # tenant + role scope for the chosen host
+    A._scope_block_device(dev_id, strict=True)   # tenant + role scope for the chosen host
     if str(body.get('confirm', '')).strip().upper() != 'RESTORE':
         A.respond(400, {'error': 'type RESTORE to confirm — this overwrites the restore path'})
     restore_path = str(body.get('restore_path', '')).strip()

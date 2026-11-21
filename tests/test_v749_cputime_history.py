@@ -366,7 +366,7 @@ class TestTheMetricsAnswer(_Hist):
 
     def test_a_reader_scoped_away_from_the_host_is_refused_and_given_nothing(self):
         self.beat_cpu(**SHARES)
-        with mock.patch.object(api, "_scope_block_device", side_effect=lambda d: api.respond(403, {"error": "Host outside your role scope"})):
+        with mock.patch.object(api, "_scope_block_device", side_effect=lambda d, strict=False: api.respond(403, {"error": "Host outside your role scope"})):
             st, body = self.ask()
         self.assertEqual(st, 403)
         self.assertNotIn("cputime", body)

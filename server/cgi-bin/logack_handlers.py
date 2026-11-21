@@ -216,7 +216,7 @@ def handle_log_ack_add():
     elif scope == 'anyunit':
         unit = ''
     if did:
-        A._scope_block_device(did)        # 403s a device the caller can't see
+        A._scope_block_device(did, strict=True)        # 403s a device the caller can't see
     elif not A._resolve_role(A._caller_role()).get('admin'):
         # A fleet-wide silence is a fleet-wide decision.
         A.respond(403, {'error': 'a fleet-wide acknowledgement requires an admin'})
@@ -262,7 +262,7 @@ def handle_log_ack_delete():
         A.respond(400, {'error': 'key is required'})
     did = key.split('|', 1)[0]
     if did and did != '*':
-        A._scope_block_device(did)
+        A._scope_block_device(did, strict=True)
     elif not A._resolve_role(A._caller_role()).get('admin'):
         A.respond(403, {'error': 'a fleet-wide acknowledgement requires an admin'})
     with A._LockedUpdate(A.LOG_ACKS_FILE) as store:

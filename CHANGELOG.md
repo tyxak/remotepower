@@ -145,11 +145,14 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   account are the provider's own (`hetzner-<number>`, `digitalocean-<number>`) and can be guessed. The API guide has promised the same 404 for both since 6.1.2. Every route under
   `/api/devices/<id>/` now answers 404 "Host not found" to a tenant user for both, before the route reads a body, and so do the routes outside it that carry a host id in the path
   (the CMDB record, the SCAP report and the patch report of a host). Run through the real gate for the 69 routes of that prefix that need no body, none of them answered the two alike
-  before and all do now. A host id in a request body that belongs to another tenant answers the same 404; an id in a body that no host has is still answered by each route in its own
-  words (33 routes read one), which is usually the same 404 and is not guaranteed. The platform operator, and an install with tenant isolation off, are answered by the route as before, and
+  before and all do now. The routes outside that prefix that read a host id from the body or the query did the same: 846 routes were run through the real gate and dispatcher as the administrator
+  of one tenant with a host of that tenant, a host of another tenant and an id no host has, and 15 answered the last two differently (the DNS import and its status, tickets, the IaC
+  request, SCAP scans, the trap-rule test, network-scan schedules, the exposure and secrets mutes, the webhook pin, compliance remediation with a 403, and reboot, shutdown, update and upgrade
+  with 400 "No valid host targets" against 404). None does now. Every call of the check that takes the id from a request says so (66 of 70; the four that read it from a stored record
+  stay), a request for several hosts leaves out an id no host has as it leaves out another tenant's host, and a ticket for an id no host has is refused to a tenant user. The platform operator, and an install with tenant isolation off, are answered by the route as before, and
   a host of your own tenant that your role may not reach is still 403 "Host outside your role scope". This is in 8.0.0 and earlier (3.14.0 added the 403). **Held by**
-  `tests/test_v802_host_of_another_tenant_is_not_found.py`, which drives the gate on every route and method of the prefix and the routes with the id in the path, and fails on the old
-  code. The 41 assertions in 27 older test modules that expected the 403 for a host of another tenant expect the 404 now.
+  `tests/test_v802_host_of_another_tenant_is_not_found.py`, which drives the gate on every route and method of the prefix and the routes with the id in the path, and
+  `tests/test_v802_body_host_ids_alike.py`, which holds the rule on every call by syntax tree and drives 24 routes of the rest three ways; both fail on the old code. The 41 assertions in 27 older test modules that expected the 403 for a host of another tenant expect the 404 now.
 
 ### Enrolment and sign-in
 

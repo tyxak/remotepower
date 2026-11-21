@@ -24,9 +24,10 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   as an id that no host has, and every fleet-wide aggregate is filtered to your tenant. This holds
   for every route under `/api/devices/<id>/` and for the other routes that carry a host id in the
   path (`/api/cmdb/<id>`, `/api/scap/<id>/report`, `/api/patch-report/device/<id>`). A host id in a
-  request body that belongs to another tenant also answers 404 `Host not found`; an id in a body that
-  no host has is answered by each route in its own words. The platform operator, who sees every
-  tenant, is answered by the route itself. A host of your own tenant that your role may not reach is
+  request body or query that belongs to another tenant answers 404 `Host not found`, and so does an id
+  that no host has (the two cannot be told apart; on a request for several hosts both are left out,
+  and a request left with no host answers 400 `No valid host targets`). The platform operator, who sees
+  every tenant, is answered by the route itself. A host of your own tenant that your role may not reach is
   a **403** `Host outside your role scope`.
 - **A key with a host scope hands out only what it has.** An administrator key that is limited to some groups, tags or sites can create and
   change keys, roles and accounts that stay inside them, and nothing wider: a request for more (a scope of `all`, another kind of scope, a role

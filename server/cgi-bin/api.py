@@ -8735,10 +8735,13 @@ def _scope_block_device(dev_id, strict=False):
 
     8.0.2: a host of another tenant answers 404 "Host not found" (see `_host_not_found`). `strict=True` is for a handler whose route carries the
     host id in its path: an id that no host has answers the same 404 to a caller that is confined to a tenant, so the two cannot be told apart.
-    The default stays for a body or query id, which can be empty, or name no host on purpose (a rule for all hosts), and falls through."""
+    The default stays for an id that is not the caller's to name (one read from a stored record), and falls through.
+
+    Every call that takes the id from the request says strict=True (40 of them, 8.0.2: the matrix of tests/xtenant_body_matrix.py found fifteen routes where a host of another
+    tenant and an id no host has were answered differently). An empty id is never looked up, so an optional id can pass strict=True as it is."""
     dev = device_get(dev_id)
     if dev is None:
-        if strict and _tenant_gate() is not None:
+        if strict and dev_id and _tenant_gate() is not None:
             _host_not_found()
         return
     if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation (8.0.2: answered as a host that does not exist)
@@ -22933,7 +22936,7 @@ def handle_device_decommission(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Host not found'})
-    _scope_block_device(dev_id)
+    _scope_block_device(dev_id, strict=True)
     _read_valid(request_models.DeviceDecommissionRequest)
     dc = bool(get_json_obj().get('decommissioned', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
@@ -27144,8 +27147,14 @@ def _resolve_targets(body):
     # An id that names NO known device is kept: it's harmless (there's no real
     # target) and the queue path reports it as "not found", preserving batch
     # observability (a caller still learns a typo'd id didn't resolve).
+    #
+    # 8.0.2: not for a caller confined to a tenant. A host of another tenant is dropped above and answered "No valid host targets"; an id no host has was kept and
+    # answered "Host not found" by the queue path, so the caller could tell which ids exist in another tenant (reboot, shutdown, update, upgrade, scap scan). Both are
+    # dropped for them and answer alike.
     known = load(DEVICES_FILE) or {}
     allowed = _scope_filter_devices(known)
+    if _tenant_gate() is not None:
+        return [d for d in ids if d in allowed]
     return [d for d in ids if d not in known or d in allowed]
 
 
@@ -28979,7 +28988,7 @@ def handle_wol():
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Host not found'})
-    _scope_block_device(dev_id)   # body-supplied id, not under /api/devices/ — tenant/scope gate
+    _scope_block_device(dev_id, strict=True)   # body-supplied id, not under /api/devices/ — tenant/scope gate
     ok, info = _send_wol(devices[dev_id])
     if not ok:
         respond(400 if 'MAC' in info else 500, {'error': info})
@@ -29038,7 +29047,7 @@ def handle_sysinfo_batch():
 def handle_metrics(dev_id):
     require_auth()
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
+    _scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device read scope
     # v3.14.0: ?range=<seconds> serves the long-retention time-series (DB
     # backends), downsampled to keep the chart readable. No range / JSON backend
     # → the recent metrics.json window (unchanged).
@@ -30673,7 +30682,7 @@ def handle_integrations_save():
                 # of role scope) and returns for an unknown id, which we reject
                 # below — binding to a device you cannot see would let the
                 # binding leak that device's group/site through alert routing.
-                _scope_block_device(_bind)
+                _scope_block_device(_bind, strict=True)
                 if device_get(_bind) is None:
                     respond(400, {'error': f'unknown device_id for {inst["label"]}'})
                 inst['device_id'] = _bind
@@ -41834,7 +41843,7 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Host not found'})
-    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
+    _scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
 
     if cron:
@@ -41887,7 +41896,7 @@ def handle_schedule_update(job_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Host not found'})
-    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
+    _scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'invalid cron expression'})
@@ -46749,9 +46758,9 @@ def handle_dependency_suggestions():
     up = str(body.get('upstream_id') or '').strip()
     action = str(body.get('action') or '').strip()
     devices = load(DEVICES_FILE) or {}
+    _scope_block_device(did, strict=True); _scope_block_device(up, strict=True)   # SEC: tenant/scope gate on both ids, before the existence check so the two answers alike
     if did not in devices or up not in devices or did == up:
         respond(400, {'error': 'valid device_id and upstream_id required'})
-    _scope_block_device(did); _scope_block_device(up)   # SEC: tenant/scope gate on both ids
     if action == 'accept':
         with _LockedUpdate(DEVICES_FILE) as devs:
             dev = devs.get(did)
@@ -46848,9 +46857,9 @@ def handle_lldp_suggestions():
     peer = str(body.get('peer_id') or '').strip()
     action = str(body.get('action') or '').strip()
     devices = load(DEVICES_FILE) or {}
+    _scope_block_device(did, strict=True); _scope_block_device(peer, strict=True)   # SEC: tenant/scope gate on both ids, before the existence check so the two answers alike
     if did not in devices or peer not in devices or did == peer:
         respond(400, {'error': 'valid device_id and peer_id required'})
-    _scope_block_device(did); _scope_block_device(peer)   # SEC: tenant/scope gate on both ids
     if action == 'accept':
         with _LockedUpdate(DEVICES_FILE) as devs:
             dev = devs.get(did)
@@ -50295,9 +50304,11 @@ def handle_netscan_schedules():
     body = _read_valid(request_models.NetscanSchedulesRequest)
     dev_id = str(body.get('device_id', '')).strip()
     subnet = str(body.get('subnet', '')).strip()
-    if not _validate_id(dev_id) or dev_id not in (load(DEVICES_FILE) or {}):
+    if not _validate_id(dev_id):
         respond(400, {'error': 'valid device_id required'})
-    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
+    _scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate (first: a host of another tenant and an id no host has answer alike)
+    if dev_id not in (load(DEVICES_FILE) or {}):
+        respond(400, {'error': 'valid device_id required'})
     if not _valid_netscan_subnet(subnet):
         respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
     try:
@@ -54824,7 +54835,7 @@ def handle_checks_toggle():
     enabled = bool(body.get('enabled'))
     if not did or not chk:
         respond(400, {'error': 'device_id and check are required'})
-    _scope_block_device(did)   # SEC: body device_id — don't let a tenant admin disable another tenant's checks
+    _scope_block_device(did, strict=True)   # SEC: body device_id — don't let a tenant admin disable another tenant's checks
     with _LockedUpdate(CONFIG_FILE) as cfg:
         d = cfg.setdefault('host_checks_disabled', {})
         cur = set(d.get(did) or [])
@@ -58060,7 +58071,7 @@ def handle_fleet_health_history():
     dev_id = (qs.get('device') or [''])[0].strip()
     store = _load_ro(HEALTH_HIST_FILE) or {}
     if dev_id:
-        _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device series
+        _scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2: per-device series
         series = (store.get('devices') or {}).get(dev_id) or []
         respond(200, {'device_id': dev_id, 'series': series})
     respond(200, {'series': store.get('fleet') or []})
@@ -61208,7 +61219,7 @@ def handle_scans_create():
         # (role scope None) would otherwise launch an intrusive scan against
         # another tenant's host. _scope_block_device 403s a cross-tenant/
         # out-of-scope target before we build the scan.
-        _scope_block_device(dev_id)
+        _scope_block_device(dev_id, strict=True)
         dev = device_get(dev_id)
         if not isinstance(dev, dict):
             respond(404, {'error': 'Host not found'})
@@ -61950,7 +61961,7 @@ def handle_scan_schedules_create():
         actor = require_perm('scan', [dev_id])
         # v6.2.2: require_perm early-returns for admin — block a tenant admin
         # from scheduling a recurring scan against another tenant's host.
-        _scope_block_device(dev_id)
+        _scope_block_device(dev_id, strict=True)
         if not isinstance(load(DEVICES_FILE).get(dev_id), dict):
             respond(404, {'error': 'Host not found'})
     elif st_id:
@@ -62508,7 +62519,7 @@ def handle_longpoll_exec():
     # this a tenant admin (scope=None) or a scoped operator could queue an
     # arbitrary command on another tenant's / out-of-scope host. Mirrors the
     # _resolve_targets → _scope_filter_devices chokepoint the command family uses.
-    _scope_block_device(dev_id)
+    _scope_block_device(dev_id, strict=True)
 
     # Apply the same allowlist check as handle_custom_cmd
     ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
@@ -63530,6 +63541,8 @@ def handle_compliance_remediate():
     if not dev:
         respond(404, {'error': 'Host not found'})
     if dev_id not in _scope_filter_devices(devices):
+        if not _tenant_visible(dev):      # 8.0.2: a host of another tenant is answered as a host that does not exist; a 403 confirmed that the id exists
+            _host_not_found()
         respond(403, {'error': 'out of scope'})
     if not dev.get('remediation_enabled'):
         respond(403, {'error': 'Automatic remediation is not enabled for this '
@@ -68343,7 +68356,7 @@ def handle_inbound_webhooks_create():
     # cannot see lets one tenant write rows onto another's fleet. Sanitising
     # the string checked its shape and nothing about who owns it.
     if scope_dev:
-        _scope_block_device(scope_dev)
+        _scope_block_device(scope_dev, strict=True)
     elif _tenant_gate() is not None:
         # Unpinned tokens attribute across the whole fleet (by tag or payload).
         respond(403, {'error': 'Pick one of your hosts for this token. Tokens '
@@ -68434,7 +68447,7 @@ def handle_inbound_webhook_toggle(token_id):
         if _sd:
             # Same attribution target as create — re-pinning an existing token
             # is the same cross-tenant write.
-            _scope_block_device(_sd)
+            _scope_block_device(_sd, strict=True)
         elif _tenant_gate() is not None:
             respond(403, {'error': 'Tokens without a host are managed by the '
                                    'platform operator.'})
@@ -69247,7 +69260,7 @@ def _mcp_handle(action, destructive):
     # an explicit check here an MCP-role caller could target ANY tenant's
     # device directly. _scope_block_device is the established helper for
     # exactly this shape of endpoint (see cmdb/acme/patch-report/device).
-    _scope_block_device(device_id)
+    _scope_block_device(device_id, strict=True)
     ai_host, ai_prompt = get_mcp_attribution()
 
     params = {k: v for k, v in body.items() if k != 'device_id'}
@@ -72112,7 +72125,7 @@ def handle_exposure_mute():
     rule = {}
     if body.get('device_id'):
         rule['device_id'] = _sanitize_str(body['device_id'], 64)
-        _scope_block_device(rule['device_id'])   # SEC: mute resolves that device's exposure alerts
+        _scope_block_device(rule['device_id'], strict=True)   # SEC: mute resolves that device's exposure alerts
     if body.get('process'):
         rule['process'] = _sanitize_str(body['process'], 64)
     if body.get('proto'):
@@ -72613,7 +72626,7 @@ def handle_secrets_host_mute():
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     if not did:
         respond(400, {'error': 'device_id required'})
-    _scope_block_device(did)   # body-supplied id — don't let a tenant admin mute/clear another tenant's host
+    _scope_block_device(did, strict=True)   # body-supplied id — don't let a tenant admin mute/clear another tenant's host
     unmute = bool(body.get('unmute'))
     with _LockedUpdate(CONFIG_FILE) as cfg:
         mutes = list(cfg.get('secrets_host_mutes') or [])
@@ -73132,8 +73145,11 @@ def _cve_scan_worker(actor, target):
             # host that is gone from the host store here has had, or will have, its findings removed after this merge
             _invalidate_load_cache(DEVICES_FILE)
             devices_now = load(DEVICES_FILE) or {}
+            # a failed read of the host store answers an empty dict as an installation with no hosts does: when the findings store names hosts and the host store names
+            # none, every host would be taken for deleted and the whole scan dropped (api._fleet_read_failed; tests/test_fleet_read_failed_prunes.py holds the shape)
+            _read_failed = _fleet_read_failed(devices_now, stored, 'the CVE findings')
             for dev_id, (result, made_from) in pending.items():
-                if dev_id in devices and dev_id not in devices_now:
+                if not _read_failed and dev_id in devices and dev_id not in devices_now:
                     continue              # it was a host when the scan started and is not one now
                 before = stored.get(dev_id)
                 before = before if isinstance(before, dict) else {}
@@ -82032,7 +82048,7 @@ def handle_iac_request():
 
     if not _validate_id(dev_id):
         respond(400, {'error': 'Invalid device_id'}); return
-    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
+    _scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     if not isinstance(categories, list) or not categories:
         respond(400, {'error': 'categories must be a non-empty list'}); return
     bad = [c for c in categories if c not in _IAC_ALL_CATEGORIES]
@@ -83597,7 +83613,7 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
     # tenant admin could therefore run a root command on another tenant's host.
     # The read sibling handle_mitigate_status already gates this way; the gate
     # goes in the shared funnel so both writes are covered at once.
-    _scope_block_device(dev_id)
+    _scope_block_device(dev_id, strict=True)
     action_id = secrets.token_hex(6)
     tagged = f'exec:#mitigate:{action_id}#{cmd_str}'
     actor = current_username() or 'unknown'
@@ -83735,7 +83751,7 @@ def handle_mitigate_status(dev_id, action_id):
     Returns the captured log content + meta, including rc when done.
     """
     require_auth()
-    _scope_block_device(dev_id)   # v4.4.0: this route is NOT under /api/devices/,
+    _scope_block_device(dev_id, strict=True)   # v4.4.0: this route is NOT under /api/devices/,
                                   # so the central scope guard doesn't cover it —
                                   # a scoped operator/viewer could otherwise read
                                   # another scope's 256 KB diagnostic capture.
@@ -83798,7 +83814,7 @@ def handle_mitigate_ai(dev_id, action_id):
     # auditor/finance) could trigger an AI-provider call (cost) + a meta.json
     # cache write. Gate on the write role like other editorial writes.
     require_write_role('run AI mitigation analysis')
-    _scope_block_device(dev_id)   # v4.4.0: scope-guard a non-/api/devices/ route
+    _scope_block_device(dev_id, strict=True)   # v4.4.0: scope-guard a non-/api/devices/ route
                                   # (sends another scope's diagnostic output to AI).
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid host id'}); return

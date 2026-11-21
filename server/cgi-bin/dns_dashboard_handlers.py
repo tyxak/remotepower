@@ -292,7 +292,7 @@ def handle_dns_import_status():
     # poll another tenant's harvest (a provider-list read) AND consume/delete its
     # result marker below, silently breaking that tenant's import. Matches the
     # POST sibling handle_dns_import_from_agent.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     dev = A.device_get(dev_id) or {}
     if dev.get('dns_harvest_pending'):
         A.respond(200, {'state': 'pending'})
@@ -322,13 +322,13 @@ def handle_dns_import_from_agent():
     dev_id = str(body.get('device_id', '')).strip()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid host id'})
+    A._scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     if not A.device_get(dev_id):
-        A.respond(404, {'error': 'unknown host'})
-    A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
+        A._host_not_found()           # 8.0.2: was 404 "unknown host", which a host of another tenant (404 "Host not found") could be told from
     with A._DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not isinstance(dev, dict):
-            A.respond(404, {'error': 'unknown host'})
+            A._host_not_found()
         # v6.4.3: the harvest is implemented in the Linux agent only (it reads
         # acme.sh's on-disk credential files). Queueing it against a Windows or
         # macOS host returned "queued — refresh in a moment" forever.

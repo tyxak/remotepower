@@ -293,7 +293,7 @@ def handle_autonomy_preview():
     body = A.get_json_obj()
     dev_id = A._sanitize_str(str(body.get('device_id') or ''), 64)
     action = A._sanitize_str(str(body.get('action') or ''), 40)
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     devices = A.load(A.DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:

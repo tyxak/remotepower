@@ -144,7 +144,7 @@ def handle_guard_action():
                         'skipped': skipped,
                         'skipped_reason': 'Integrity Guard runs on Linux hosts only'
                                           if skipped else ''})
-    A._scope_block_device(did)     # 403s a device the caller can't see
+    A._scope_block_device(did, strict=True)     # 403s a device the caller can't see
     _keep, _skipped = A._split_targets_by_os_support([did])
     if not _keep:
         A.respond(400, {'error': 'Integrity Guard runs on Linux hosts only — '

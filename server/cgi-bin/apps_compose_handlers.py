@@ -200,7 +200,7 @@ def handle_app_catalog_deploy():
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(device_id)
+    A._scope_block_device(device_id, strict=True)
     if not devices[device_id].get('compose_enabled', False):
         A.respond(403, {'error': 'compose deploys are disabled on this host — enable them first'})
     name, yaml = tpl['id'], tpl['yaml']
@@ -294,7 +294,7 @@ def handle_compose_stack_create():
         A.respond(400, {'error': 'does not look like a compose file (no "services:" key)'})
     # v6.2.2: block a tenant admin from creating a stack on another tenant's
     # host (require_admin_auth early-returns for admin, so this is the only gate).
-    A._scope_block_device(device_id)
+    A._scope_block_device(device_id, strict=True)
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
         A.respond(404, {'error': 'Host not found'})

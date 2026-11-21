@@ -117,7 +117,7 @@ def handle_webterm_auth():
     devices = A._load_ro(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
+    A._scope_block_device(dev_id, strict=True)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     # 8.0.0: a quarantined host takes no exec, reboot or actions, and a terminal is exec: the SSH gateway has always refused one, this did not.
     _blocked = A._direct_block_reason(devices[dev_id], maintenance=False)
     if _blocked:

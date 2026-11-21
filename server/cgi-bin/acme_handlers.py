@@ -281,7 +281,7 @@ def handle_acme_dns_credentials_set():
 def handle_acme_detail(dev_id, domain):
     """GET /api/acme/<dev_id>/<domain> — single-cert detail + recent log files."""
     A.require_auth()
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
+    A._scope_block_device(dev_id, strict=True)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid host id'}); return
     if not A._acme_validate_domain(domain):
@@ -350,7 +350,7 @@ def handle_acme_log(dev_id, action_id):
     A.require_auth()
     # Per-device read NOT under /api/devices/, so the dispatch guard
     # (_enforce_device_scope) doesn't cover it — block out-of-scope roles here.
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid host id'}); return
     log_path = A._acme_log_path(dev_id, action_id)
@@ -376,7 +376,7 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
     # tenant admin (role scope None) could otherwise queue an exec: (issue/
     # renew/revoke) on another tenant's host. Gate tenant + role scope here —
     # the one funnel for issue/force-renew/revoke. (Read siblings already do.)
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     action_id = secrets.token_hex(6)
     # Reserve the log file so the action shows up in the detail view
     # immediately, as `pending`, before the agent has even collected it.
@@ -500,7 +500,7 @@ def handle_acme_cancel(dev_id, action_id):
     # v6.3.0 security fix: cancel bypasses _acme_queue_command's gate — apply
     # the same tenant + role-scope block (route is under /api/acme/, not covered
     # by _enforce_device_scope).
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         A.respond(400, {'error': 'invalid action id'}); return
     log_path = A._acme_log_path(dev_id, action_id)
@@ -575,7 +575,7 @@ def handle_acme_ignore(dev_id, action_id):
     # v5.0.1 (SECURITY): this route isn't under /api/devices/, so the global
     # device-scope chokepoint doesn't cover it. Block cross-scope deletes the
     # same way the acme detail/log read siblings do (was an IDOR).
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         A.respond(400, {'error': 'invalid action id'}); return
     log_path = A._acme_log_path(dev_id, action_id)

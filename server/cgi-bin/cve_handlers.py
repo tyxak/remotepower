@@ -203,7 +203,7 @@ def handle_cve_scan():
         target = str(target).strip()
         if not A._validate_id(target):
             A.respond(400, {'error': 'Invalid device_id'})
-        A._scope_block_device(target)   # SEC: scans that device's packages
+        A._scope_block_device(target, strict=True)   # SEC: scans that device's packages
         spec = target
     else:
         spec = A._CVE_SCAN_TENANT + gate if gate is not None else None
@@ -825,7 +825,7 @@ def handle_cve_ignore_add():
     # require_admin_auth() passes a TENANT admin, so any device id was accepted
     # and a finding could be marked accepted risk on another tenant's host.
     if scope != 'global':
-        A._scope_block_device(scope)
+        A._scope_block_device(scope, strict=True)
 
     # Stamp the tenant that accepted the risk. The store is keyed by
     # vulnerability id alone, so without this a `global` record from one tenant
@@ -1020,7 +1020,7 @@ def handle_cve_host_accept(dev_id):
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     body = A._read_valid(A.request_models.CveHostAcceptRequest)
     reason = A._sanitize_str(body.get('reason', ''), 256) or 'Host accepted'
     dev = A.device_get(dev_id)
@@ -1076,7 +1076,7 @@ def handle_cve_host_unaccept(dev_id):
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
-    A._scope_block_device(dev_id)
+    A._scope_block_device(dev_id, strict=True)
     owner = A._tenant_gate()
     removed = 0
     with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
