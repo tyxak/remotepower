@@ -589,7 +589,9 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   **A feed that keeps failing is reported.** A feed that cannot be read looks like a quiet week while the stream of critical items has stopped. Six reads of one feed that fail in a row (three hours)
   raise `security_news_feed_failing` once, in the inbox and through every channel set for Health: the feed by its title or else its host, and the last answer, never the address. The first read
   that works raises `security_news_feed_recovered`, which closes it by the feed's own key (two feeds with one name are two alerts); a feed taken out of the list and a watch switched off close theirs.
-  Two events in the registry (243 now), in the activity feed, with their translations. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
+  Two events in the registry (243 now), in the activity feed, with their translations. **Scan again later** (off, or 6, 12 or 24 hours; `rescan_hours`): the advisory database often has the record
+  of a flaw hours after the news, so a scan the watch started can be followed by one more, once, that long after. It is the same scan by the same slot; one that finds a scan running is tried at
+  the next read and one that could not start for a day is dropped; a newer scan moves it, and it needs the action that scans all hosts. The audit log says `follow_up=1`. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
   everyday words (`console-setup`, `command-not-found`, `liburi-perl`), and an article about a management console must not match them. A counting item raises the new event
   `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
   hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and

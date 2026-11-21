@@ -63,6 +63,7 @@ SCAN_GAP_S = 6 * 3600  # at most one scan started by the watch in this time, wha
 MAX_ALERTS_PER_RUN = 5  # alerts one read raises; a critical item beyond it is listed and says so
 MANUAL_GAP_S = 60  # "Check now" is refused when the feeds were read less than this long ago
 FEED_FAIL_STREAK = 6  # reads of one feed that fail in a row before an alert says so: three hours at the cadence of EVERY_S
+RESCAN_GIVE_UP_S = 24 * 3600  # a follow-up scan that could not be started for this long after it was due is dropped: the advisory database has had its day
 FETCH_TIMEOUT_S = 10  # for each step of a connection
 FETCH_DEADLINE_S = 25  # for the whole of one feed, so a server that sends a byte at a time cannot hold the read
 RUN_BUDGET_S = 45  # for all the feeds of one read; a feed past it is read next time
@@ -323,6 +324,8 @@ def poll_once(now=None, fetch=None):
             else:
                 scan_wanted = True
                 st["last_scan_at"] = now
+                if cfg["rescan_hours"]:
+                    st["rescan_due"] = now + cfg["rescan_hours"] * 3600      # planned here, and taken back below if the scan does not start
                 for e in alerts:
                     e["outcome"] = "scanned"
         st["items"] = (fresh_items + listed)[: N.MAX_LISTED]
@@ -344,6 +347,7 @@ def poll_once(now=None, fetch=None):
             except Exception:
                 pass
     _fire_feed_events(feed_events)
+    summary["follow_up"] = _follow_up_scan(cfg, now)
     for e in alerts:
         payload = {
             "title": e["title"], "url": e["link"], "source": e["feed"], "severity": "high" if e["software"] else "medium",
@@ -357,6 +361,52 @@ def poll_once(now=None, fetch=None):
     return summary
 
 
+def _follow_up_scan(cfg, now):
+    """The second scan of a headline that started one, when the settings ask for it (`rescan_hours`): the advisory database often has the record hours after the news, and the first scan
+    reads it as it was. Returns a word for what happened ('started', 'waiting', 'dropped', 'none') or None when nothing was planned or it is not time.
+
+    One follow-up is planned for each scan the watch starts, `rescan_hours` after it, and a newer scan moves it. It is the scan of every host as the first was, by the same slot, so it never
+    runs beside another scan; one that finds a scan running is tried again at the next read, and one that could not start for a day is dropped. It does not run when the action is no longer
+    'scan', when the watch is off or when the setting was turned off since: the plan is forgotten. It counts as a scan the watch started, so a new headline waits the usual six hours."""
+    try:
+        st = _store_dict((A._load_ro(A.NEWS_WATCH_FILE) or {}) if A.backend_exists(A.NEWS_WATCH_FILE) else {})
+        due = _num(st.get("rescan_due"))
+        if due is None:
+            return None
+        if not (cfg["enabled"] and cfg["action"] == "scan" and cfg["rescan_hours"]):
+            _set_rescan_due(None)
+            return "dropped"
+        if now < due:
+            return None
+        if now - due > RESCAN_GIVE_UP_S:
+            _set_rescan_due(None)
+            return "dropped"
+        state, hosts = A.cve_handlers_mod.queue_fleet_scan("news-watch")
+        if state == "busy":
+            return "waiting"
+        _set_rescan_due(None, scanned_at=now if state == "started" else None)
+        if state == "started":
+            try:
+                A.audit_log("news-watch", "news_watch_scan", f"hosts={hosts} items=0 follow_up=1")
+            except Exception:
+                pass
+        return "started" if state == "started" else "none"
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] news watch: the follow-up scan could not be worked out: {type(e).__name__}: {e}\n")
+        return None
+
+
+def _set_rescan_due(due, scanned_at=None):
+    """Write the plan of the follow-up scan (None forgets it), and the time of the scan that was started for it."""
+    with A._LockedUpdate(A.NEWS_WATCH_FILE) as st:
+        if due is None:
+            st.pop("rescan_due", None)
+        else:
+            st["rescan_due"] = due
+        if scanned_at is not None:
+            st["last_scan_at"] = scanned_at
+
+
 def _mark_scan_refused(ids):
     """The scan was wanted and not started (one was already running, no host has a package list): the items say so instead of 'scan started'.
     The time of the last scan is put back, so the next critical item may try again."""
@@ -366,6 +416,7 @@ def _mark_scan_refused(ids):
                 if isinstance(i, dict) and i.get("id") in ids and i.get("outcome") == "scanned":
                     i["outcome"] = "scan_refused"
             st.pop("last_scan_at", None)
+            st.pop("rescan_due", None)      # there was no scan to scan again
     except Exception as e:
         sys.stderr.write(f"[remotepower] news watch: the scan note could not be saved: {type(e).__name__}\n")
 
@@ -508,6 +559,8 @@ def _view(now):
         "action": cfg["action"],
         "words": cfg["words"],
         "critical_words": cfg["critical_words"],
+        "rescan_hours": cfg["rescan_hours"],
+        "rescan_due": _num(st.get("rescan_due")),
         "max_words": N.MAX_WORDS,
         "every": EVERY_S,
         "scan_gap": SCAN_GAP_S,

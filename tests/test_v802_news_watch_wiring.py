@@ -263,6 +263,23 @@ class TestTheClientNamesIt(unittest.TestCase):
                 self.assertTrue(set(LANGS) <= rows.get(text, set()), text)
         self.assertEqual(N.settings(None)['scope'], 'relevant', 'the default is the middle choice')
 
+    def test_scan_again_later_offers_the_choices_the_server_knows_with_the_default_first_and_translated(self):
+        rows = dict_rows(I18N)
+        sel = re.search(r'<select id="nw-rescan"[^>]*>(.*?)</select>', HTML, re.S).group(1)
+        self.assertEqual(tuple(int(v) for v in re.findall(r'<option value="(\d+)"', sel)), N.RESCAN_HOURS, 'the same choices in the same order, and none first is the default')
+        self.assertEqual(N.RESCAN_HOURS[0], 0)
+        self.assertEqual(N.settings(None)['rescan_hours'], 0)
+        texts = re.findall(r'<option value="\d+">([^<]+)</option>', sel)
+        self.assertEqual(len(texts), len(N.RESCAN_HOURS))
+        for text in texts + ['Scan again later', 'The advisory database often has the record of a flaw hours after the news, and a scan reads it as it is when it runs. With this on, a scan the watch started is followed by one more after this time. It needs the choice above to scan all hosts.']:
+            self.assertTrue(set(LANGS) <= rows.get(text, set()), text)
+        for hours, text in zip(N.RESCAN_HOURS[1:], texts[1:]):
+            self.assertIn(str(hours), text, 'the option says its own number of hours')
+        self.assertRegex(HTML, r'<label class="form-label" for="nw-rescan">Scan again later</label>')
+        self.assertIn("rescan_hours: document.getElementById('nw-rescan').value", srcpin.js_function(NW, 'newsWatchSave'))
+        self.assertIn("set('nw-rescan'", srcpin.js_function(NW, '_nwFillForm'))
+        self.assertLess(HTML.index('id="nw-action"'), HTML.index('id="nw-rescan"'), 'it follows the choice of what is done, which it depends on')
+
     def test_the_feed_and_the_inbox_know_the_event(self):
         self.assertRegex(APP, r"'security_news_critical': 'warn'")
         feed = APP[APP.index('function _renderHomeActivity'):]

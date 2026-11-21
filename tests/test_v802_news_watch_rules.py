@@ -268,6 +268,28 @@ class TestCriticalWords(unittest.TestCase):
         self.assertEqual([n['critical'] for n in new], [False], 'with no words given, the same headline is not critical')
 
 
+class TestRescanHours(unittest.TestCase):
+    """Scan again later (8.0.2): after a scan the watch started, one more after 6, 12 or 24 hours, off by default."""
+
+    def test_the_choices_and_the_default(self):
+        self.assertEqual(N.RESCAN_HOURS, (0, 6, 12, 24))
+        self.assertEqual(N.settings(None)['rescan_hours'], 0, 'off until an operator asks')
+        for h in N.RESCAN_HOURS:
+            self.assertEqual(N.settings({'rescan_hours': h})['rescan_hours'], h)
+            self.assertEqual(N.clean_update({'rescan_hours': h}), ({'rescan_hours': h}, None))
+            self.assertEqual(N.clean_update({'rescan_hours': str(h)}), ({'rescan_hours': h}, None), 'a select sends text')
+            self.assertEqual(N.clean_update({'rescan_hours': ' %d ' % h}), ({'rescan_hours': h}, None))
+
+    def test_what_is_not_a_choice_is_refused_in_a_save_and_read_as_off_in_the_settings(self):
+        for bad in (1, 5, 7, 36, -6, 6.0, '6.0', '', 'six', None, True, False, [6], {'h': 6}, 10 ** 30, '١٢', '²', '⑥', '６', '6\n6', '0x6', '+6', '1e1', '0006' + '0' * 200):
+            update, why = N.clean_update({'rescan_hours': bad})
+            self.assertIsNone(update, repr(bad))
+            self.assertEqual(why, 'rescan_hours is one of: 0, 6, 12, 24', repr(bad))
+            self.assertEqual(N.settings({'rescan_hours': bad})['rescan_hours'], 0, repr(bad))
+        self.assertEqual(N.clean_update({'scope': 'all'}), ({'scope': 'all'}, None), 'a field that is not in the body is left as it is')
+
+
+
 class TestRelevance(unittest.TestCase):
 
     def test_a_package_is_one_word(self):
@@ -523,14 +545,14 @@ class TestSettings(unittest.TestCase):
 
     def test_the_defaults_are_off_and_read_the_one_feed(self):
         s = N.settings(None)
-        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan', 'words': [], 'critical_words': []})
+        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan', 'words': [], 'critical_words': [], 'rescan_hours': 0})
         self.assertIsNot(N.settings(None)['feeds'], N.settings(None)['feeds'], 'a copy each time: one caller cannot change the next one default')
 
     def test_damaged_settings_read_as_defaults_field_by_field(self):
         s = N.settings({'enabled': 'yes', 'feeds': 'not a list', 'scope': 'everything', 'action': 7})
         self.assertEqual(s, N.settings(None))
         s = N.settings({'enabled': True, 'feeds': ['https://a.example/rss', 'javascript:alert(1)', 5, 'https://a.example/rss', 'https://u:p@b.example/x'], 'scope': 'all', 'action': 'list'})
-        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list', 'words': [], 'critical_words': []})
+        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list', 'words': [], 'critical_words': [], 'rescan_hours': 0})
 
     def test_a_feed_address_has_to_be_a_public_looking_http_address(self):
         good = ['https://feeds.example.net/rss.xml', 'http://news.example.net/feed?format=rss', 'https://news.example.net:8443/a/b.atom', 'https://xn--bcher-kva.example/feed',

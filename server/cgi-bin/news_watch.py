@@ -33,6 +33,12 @@ SCOPES = (
     "all",
 )  # what counts: software that runs on a host, software on a host (installed or running), every critical item
 ACTIONS = ("list", "alert", "scan")
+RESCAN_HOURS = (
+    0,
+    6,
+    12,
+    24,
+)  # after a scan the watch started: never again (0), or one more scan this many hours later
 DEFAULTS = {
     "enabled": False,
     "feeds": list(DEFAULT_FEEDS),
@@ -40,6 +46,7 @@ DEFAULTS = {
     "action": "scan",
     "words": [],
     "critical_words": [],
+    "rescan_hours": 0,
 }
 
 MAX_FEEDS = 5
@@ -235,6 +242,9 @@ def settings(raw):
             ok, _ = clean_words([w]) if isinstance(w, str) else (None, None)
             if ok and ok[0] not in out["words"] and len(out["words"]) < MAX_WORDS:
                 out["words"].append(ok[0])
+    hours = raw.get("rescan_hours")
+    if isinstance(hours, int) and not isinstance(hours, bool) and hours in RESCAN_HOURS:
+        out["rescan_hours"] = hours
     critical = raw.get("critical_words")
     if isinstance(critical, list):
         for w in critical:
@@ -286,6 +296,14 @@ def clean_update(body):
         if why:
             return None, why
         update["words"] = words
+    if "rescan_hours" in body:
+        v = body["rescan_hours"]
+        # not str.isdigit(): it is true of '²', which int() then refuses with an exception
+        if isinstance(v, str) and re.fullmatch(r"[0-9]{1,3}", v.strip()):
+            v = int(v.strip())
+        if isinstance(v, bool) or not isinstance(v, int) or v not in RESCAN_HOURS:
+            return None, "rescan_hours is one of: " + ", ".join(str(h) for h in RESCAN_HOURS)
+        update["rescan_hours"] = v
     if "critical_words" in body:
         critical, why = clean_critical_words(body["critical_words"])
         if why:

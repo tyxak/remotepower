@@ -2283,6 +2283,7 @@ if _AVAILABLE:
         action: Any = None
         words: Any = None
         critical_words: Any = None
+        rescan_hours: Any = None
 
     class CveHostAcceptRequest(BaseModel):
         """8.0.2: accepting a host's findings: the reason is optional text."""

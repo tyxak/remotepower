@@ -773,6 +773,126 @@ class TestAFeedThatKeepsFailing(_Server):
         page = self.get_page()
         self.assertNotIn('fail_alerted', json.dumps(page), 'the state that stops a second alert is not for a page')
 
+
+class TestScanAgainLater(_Server):
+    """Scan again later (8.0.2): the advisory database often has the record of a flaw hours after the news, so a scan the watch started can be followed by one more."""
+
+    def start_a_scan(self, hours=6):
+        """A headline that starts a scan, with the setting on: returns the time the scan was started at."""
+        self.settings(scope='relevant', action='scan', rescan_hours=hours)
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, advance=1800)
+        self.assertEqual((out['alerts'], out['scan']), (1, 'started'), out)
+        return self.t
+
+    def due(self):
+        return self.state().get('rescan_due')
+
+    def test_with_it_off_nothing_is_planned_and_the_default_is_off(self):
+        self.settings(scope='relevant', action='scan')
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, advance=1800)
+        self.assertEqual(len(self.spawned), 1)
+        self.assertIsNone(self.due())
+        self.assertEqual(self.get_page()['rescan_hours'], 0)
+
+    def test_a_scan_the_watch_starts_plans_one_more_the_chosen_hours_later(self):
+        for hours in (6, 12, 24):
+            self.setUp()
+            started = self.start_a_scan(hours)
+            self.assertEqual(self.due(), started + hours * 3600, hours)
+            page = self.get_page()
+            self.assertEqual((page['rescan_hours'], page['rescan_due']), (hours, started + hours * 3600))
+
+    def test_it_is_not_run_before_it_is_due_and_runs_once_when_it_is(self):
+        started = self.start_a_scan(6)
+        self.finish_the_scan()
+        out = self.poll(QUIET, advance=5 * HOUR + 1800)
+        self.assertEqual((out['follow_up'], len(self.spawned)), (None, 1), 'half an hour early: nothing')
+        self.assertEqual(self.due(), started + 6 * HOUR)
+        out = self.poll(QUIET, advance=1800)
+        self.assertEqual((out['follow_up'], len(self.spawned)), ('started', 2), 'due')
+        self.assertEqual(self.spawned[1][0], 'news-watch')
+        self.assertIsNone(self.due(), 'the plan is spent')
+        self.assertEqual(self.state()['last_scan_at'], self.t, 'it counts as a scan the watch started: a new headline waits the usual six hours')
+        self.finish_the_scan()
+        out = self.poll(QUIET, advance=HOUR)
+        self.assertEqual((out['follow_up'], len(self.spawned)), (None, 2), 'and it runs once')
+        self.assertIn('follow_up=1', [a[2] for a in self.audits if a[1] == 'news_watch_scan'][-1], 'the audit log says it was the second scan')
+
+    def test_a_scan_that_is_running_when_it_is_due_is_tried_again_at_the_next_read(self):
+        started = self.start_a_scan(6)                      # the marker says a scan is running: nobody finished it
+        out = self.poll(QUIET, advance=6 * HOUR)
+        self.assertEqual((out['follow_up'], len(self.spawned)), ('waiting', 1))
+        self.assertEqual(self.due(), started + 6 * HOUR, 'the plan is kept')
+        self.finish_the_scan()
+        out = self.poll(QUIET, advance=1800)
+        self.assertEqual((out['follow_up'], len(self.spawned)), ('started', 2), 'the next read finds the slot free')
+
+    def test_one_that_could_not_start_for_a_day_is_dropped(self):
+        started = self.start_a_scan(6)
+        self.poll(QUIET, advance=6 * HOUR)                  # waiting
+        out = self.poll(QUIET, advance=self.mod.RESCAN_GIVE_UP_S + 60)
+        self.assertEqual((out['follow_up'], len(self.spawned)), ('dropped', 1))
+        self.assertIsNone(self.due())
+        self.assertGreater(self.t - (started + 6 * HOUR), self.mod.RESCAN_GIVE_UP_S)
+
+    def test_the_plan_is_forgotten_when_the_action_or_the_setting_changes_or_the_watch_is_off(self):
+        for change, label in (({'action': 'alert'}, 'the action is no longer to scan'), ({'rescan_hours': 0}, 'the setting was turned off'), ({'enabled': False}, 'the watch is off')):
+            self.setUp()
+            self.start_a_scan(6)
+            self.finish_the_scan()
+            self.settings(**change)
+            cfg = N.settings(self.api.load(self.api.CONFIG_FILE)['news_watch'])
+            self.api._LOAD_CACHE.clear()
+            result = self.mod._follow_up_scan(cfg, self.t + 6 * HOUR)
+            self.assertEqual((result, len(self.spawned)), ('dropped', 1), label)
+            self.assertIsNone(self.due(), label)
+
+    def test_a_scan_that_did_not_start_plans_nothing(self):
+        self.api.save(self.api.PACKAGES_FILE, {})                  # no host has a package list: there is nothing to scan
+        self.api._LOAD_CACHE.clear()
+        self.settings(scope='all', action='scan', rescan_hours=6)
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, advance=1800)
+        self.assertEqual((out['scan'], len(self.spawned)), ('none', 0), out)
+        self.assertIsNone(self.due(), 'there was no scan to scan again')
+
+    def test_a_newer_scan_moves_the_plan(self):
+        first = self.start_a_scan(6)
+        self.finish_the_scan()
+        # half an hour past the due time of the first follow-up, a new headline starts a scan of its own: that scan reads the database as it is now, so it takes the follow-up's place
+        out = self.poll(QUIET, NGINX, ('Critical NGINX flaw, a second one', 'nginx'), advance=6 * HOUR + 1800)
+        self.assertEqual((out['alerts'], out['scan'], out['follow_up']), (1, 'started', None), out)
+        self.assertEqual(len(self.spawned), 2)
+        self.assertEqual(self.due(), self.t + 6 * HOUR, 'one plan, and it is the newest scan\'s')
+        self.assertGreater(self.t, first + 6 * HOUR)
+        self.finish_the_scan()
+        out = self.poll(QUIET, advance=6 * HOUR)
+        self.assertEqual((out['follow_up'], len(self.spawned)), ('started', 3), 'and that is the one that runs')
+        self.assertIsNone(self.due())
+
+    def test_the_setting_is_saved_through_the_route_and_a_value_that_is_not_a_choice_is_refused(self):
+        st, got = self.request('/api/news-watch/config', 'POST', body={'rescan_hours': '12'})
+        self.assertEqual((st, got['rescan_hours']), (200, 12), got)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch']['rescan_hours'], 12)
+        for bad in (5, '5', 'six', '²', '١٢', None, True, [6], 36):
+            st, got = self.request('/api/news-watch/config', 'POST', body={'rescan_hours': bad})
+            self.assertEqual((st, got.get('error')), (400, 'rescan_hours is one of: 0, 6, 12, 24'), bad)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch']['rescan_hours'], 12, 'nothing of a refused save was kept')
+        st, got = self.request('/api/news-watch/config', 'POST', body={'rescan_hours': 0})
+        self.assertEqual((st, got['rescan_hours']), (200, 0))
+
+    def test_nobody_but_the_platform_operator_may_change_it(self):
+        self.tenancy()
+        for token in ('v', 'b'):
+            st, got = self.request('/api/news-watch/config', 'POST', token=token, body={'rescan_hours': 6})
+            self.assertEqual(st, 403, (token, got))
+        self.api._LOAD_CACHE.clear()
+        self.assertNotIn('rescan_hours', self.api.load(self.api.CONFIG_FILE)['news_watch'])
+
 # ── the mark of the tab and of the sidebar ───────────────────────────────────
 
 class TestTheMark(_Server):
@@ -1283,7 +1403,7 @@ class TestTheRoutes(_Server):
         st, got = self.request('/api/news-watch/config', 'POST', body={'action': 'alert', 'feeds': f'{FEED2}\n\n{FEED}'})
         self.assertEqual((st, got['ok'], got['action'], got['feeds'], got['scope'], got['enabled']), (200, True, 'alert', [FEED2, FEED], 'relevant', True))
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert', 'words': [], 'critical_words': []})
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert', 'words': [], 'critical_words': [], 'rescan_hours': 0})
         a = self.audits[-1]
         self.assertEqual(a[1], 'news_watch_config')
         self.assertIn('feeds=news.example.net,other.example.org', a[2])

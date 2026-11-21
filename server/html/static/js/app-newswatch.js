@@ -108,6 +108,7 @@ function _nwFillForm(d) {
   set('nw-words', el => { const v = (d.words || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-critical-words', el => { const v = (d.critical_words || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-action', el => { el.value = d.action; });
+  set('nw-rescan', el => { el.value = String(d.rescan_hours || 0); });
   _nwFormLoaded = true;
 }
 
@@ -187,6 +188,7 @@ async function newsWatchSave() {
     action: document.getElementById('nw-action').value,
     words: document.getElementById('nw-words').value,
     critical_words: document.getElementById('nw-critical-words').value,
+    rescan_hours: document.getElementById('nw-rescan').value,
   };
   const r = await api('POST', '/news-watch/config', body);
   if (!r || r.error) { failToast(r); return; }

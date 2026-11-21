@@ -657,6 +657,11 @@ Server, `httpd` or Apache 2 and not for Apache Roller, Tomcat or Kafka; `node` c
 A scan reads the advisory database as it is when the scan runs. A flaw that was in the news an hour ago may not be in OSV.dev yet, so the scan can find
 nothing new. Scan again when OSV.dev has the record.
 
+**Scan again later.** The setting of that name does the second scan for you. With **Scan again 6, 12 or 24 hours later**, a scan the watch started is followed by one more that long after,
+once: the same scan of every host, taken by the same slot, so it never runs beside another scan. A scan that is running when it is due is waited for, at the next read of the feeds, and one
+that could not start for a day is dropped. A newer scan the watch starts takes the follow-up's place, since it reads the database as it is then. The choice needs **Raise an alert and scan all
+hosts**: with another action the plan is forgotten. It is off by default, and the audit log says `follow_up=1` on the second scan.
+
 ### How the feeds are read
 
 The feeds are read every 30 minutes. **Check now** reads them at once, and it is refused when they were read less than a minute ago.
